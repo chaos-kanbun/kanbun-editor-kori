@@ -1,0 +1,1365 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>字体組立 — KAGE / GlyphWiki 部品合成エンジン</title>
+<link rel="icon" href="icons/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="icons/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="js/ids_radicals.js"></script>
+<style>
+  /* 部首パレットの拡張漢字を表示するため、エディタと同じ字雲フォントを使う */
+  @font-face{ font-family:"Jigmo"; font-display:swap; src:url("fonts/Jigmo.ttf") format("truetype"); unicode-range:U+2E80-2FFF, U+3005-3007, U+31C0-31EF, U+3400-4DBF, U+4E00-9FFF, U+F900-FAFF; }
+  @font-face{ font-family:"Jigmo2"; font-display:swap; src:url("fonts/Jigmo2.ttf") format("truetype"); unicode-range:U+20000-2FFFF; }
+  @font-face{ font-family:"Jigmo3"; font-display:swap; src:url("fonts/Jigmo3.ttf") format("truetype"); unicode-range:U+20000-3FFFF; }
+  /* デジタル庁デザインシステム(DADS)に準拠したスタイル */
+  :root{
+    --ui-primary:#0017C1; --ui-on-primary:#FFFFFF; --ui-primary-container:#E8F1FE; --ui-on-primary-container:#00118F;
+    --ui-secondary-container:#E8F1FE; --ui-on-secondary-container:#00118F;
+    --ui-tertiary:#EC0000; --ui-tertiary-container:#FDEEEE; --ui-on-tertiary-container:#1A1A1A;
+    --ui-error:#EC0000; --ui-error-container:#FDEEEE; --ui-on-error-container:#1A1A1A;
+    --ui-surface:#F2F2F2; --ui-surface-lowest:#FFFFFF; --ui-surface-low:#FFFFFF; --ui-surface-container:#FFFFFF;
+    --ui-surface-high:#E6E6E6; --ui-surface-highest:#E6E6E6;
+    --ui-on-surface:#333333; --ui-on-surface-variant:#666666; --ui-outline:#767676; --ui-outline-variant:#CCCCCC;
+    --ui-inverse-surface:#1A1A1A; --ui-inverse-on-surface:#FFFFFF;
+    --ui-elev-1: 0 2px 6px rgba(0,0,0,.16);
+    --ui-elev-2: 0 4px 12px rgba(0,0,0,.18);
+    --ui-font: "Noto Sans JP","Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif;
+    --ui-mono: "JetBrains Mono",ui-monospace,monospace;
+    /* 元の名前の変数は、上の役割に対応づけて使う */
+    --paper: var(--ui-surface); --ink: var(--ui-on-surface); --ink-soft: var(--ui-on-surface-variant);
+    --seal: var(--ui-tertiary); --seal-dim: var(--ui-tertiary-container); --slate: var(--ui-primary); --slate-dim: var(--ui-outline);
+    --line: var(--ui-outline-variant); --radius: 4px; --canvas-bg: var(--ui-surface-lowest); --gold: var(--ui-outline);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:var(--ui-surface);color:var(--ui-on-surface);font-family:var(--ui-font);}
+  a{color:var(--ui-primary);}
+  header{padding:12px 24px; min-height:64px; background:var(--ui-surface-lowest); border-bottom:1px solid #949494; display:flex; align-items:center; justify-content:space-between; gap:20px; flex-wrap:wrap;}
+  header h1{font-family:var(--ui-font); font-weight:700; font-size:22px; line-height:30px; margin:0; color:#1A1A1A;}
+  header p{margin:4px 0 0; font-size:14px; line-height:20px; color:var(--ui-on-surface-variant); max-width:640px;}
+  header .credit{font-size:12px; line-height:16px; color:var(--ui-on-surface-variant); text-align:right;}
+  header .credit a{text-decoration:none;}
+  header .credit a:hover{text-decoration:underline;}
+  .workshop{display:grid; grid-template-columns:320px 1fr; gap:12px; padding:12px; min-height:calc(100vh - 140px);}
+  .col{padding:20px; background:var(--ui-surface-lowest); border:1px solid #949494; border-radius:8px;}
+  .col-title{font-size:16px; line-height:24px; font-weight:700; margin:0 0 12px; display:flex; align-items:center; gap:8px; color:var(--ui-on-surface);}
+  .col-title .idx{display:inline-flex; align-items:center; justify-content:center; width:24px; height:24px; border-radius:12px; background:var(--ui-primary); color:var(--ui-on-primary); font-size:12px; font-weight:500;}
+  input[type=text], input[type=number]{font-size:14px; height:40px; border:1px solid var(--ui-on-surface-variant); background:#FFFFFF; padding:0 12px; border-radius:8px; color:var(--ui-on-surface); font-family:var(--ui-font);}
+  input[type=text]:focus, input[type=number]:focus, textarea:focus{outline:2px solid var(--ui-primary); outline-offset:1px;}
+  .row{display:flex; gap:8px; margin-bottom:8px; align-items:center;}
+  .row input{flex:1; min-width:0;}
+  button{font-family:var(--ui-font); font-size:14px; line-height:20px; font-weight:700; border:1px solid var(--ui-primary); background:var(--ui-primary); color:var(--ui-on-primary); height:40px; padding:0 20px; border-radius:8px; cursor:pointer;}
+  button:hover{background:#00118F; border-color:#00118F; text-decoration:underline;}
+  button:focus-visible{outline:2px solid var(--ui-primary); outline-offset:2px;}
+  button.secondary{background:#FFFFFF; color:var(--ui-primary); border:1px solid var(--ui-primary); padding:0 16px;}
+  button.secondary:hover{background:var(--ui-primary-container); color:#00118F;}
+  button.seal-btn{background:var(--ui-primary); color:var(--ui-on-primary);}
+  button:disabled{opacity:.38; cursor:not-allowed; box-shadow:none;}
+  .status-line{font-size:12px; line-height:16px; min-height:16px; margin:4px 0 10px; color:var(--ui-on-surface-variant);}
+  .status-line.err{color:var(--ui-error);}
+  .status-line.ok{color:var(--ui-primary);}
+  .box{margin-top:16px; border-top:1px solid var(--ui-outline-variant); padding-top:16px;}
+  .box textarea{width:100%; height:64px; font-family:var(--ui-mono); font-size:12px; border:1px solid var(--ui-on-surface-variant); border-radius:8px; background:#FFFFFF; color:var(--ui-on-surface); padding:8px 12px; resize:vertical; margin-bottom:8px;}
+  .url-box{font-family:var(--ui-mono); font-size:11px; background:var(--ui-surface-lowest); border:1px solid var(--ui-outline-variant); border-radius:4px; padding:6px 8px; user-select:all; word-break:break-all; margin:6px 0;}
+  .hint{font-size:12px; color:var(--ui-on-surface-variant); line-height:1.7; margin-top:8px;}
+  .layout-toolbar{display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px;}
+  .canvas-wrap{position:relative; width:100%; max-width:600px; aspect-ratio:1/1; margin:0 auto; border-radius:8px; overflow:hidden;}
+  .canvas-outside{ fill:#F2F2F2; }
+  .canvas-frame{ fill:var(--ui-surface-lowest); stroke:#949494; stroke-width:0.8; }
+  svg#canvasSvg{width:100%; height:100%; display:block; touch-action:none;}
+  .grid-line{stroke:var(--ui-outline-variant); stroke-width:0.5;}
+  .margin-guide{ fill:none; stroke:var(--ui-outline); stroke-width:0.8; pointer-events:none; }
+  .glyph-bg path, .glyph-bg polygon{ fill:var(--ui-on-surface); fill-opacity:0.88; }
+  .part-rect{fill:transparent; stroke:transparent; stroke-width:1.4; cursor:move;}
+  .part-rect:hover{fill:rgba(0,23,193,0.04); stroke:var(--ui-primary); stroke-dasharray:3,2;}
+  .part-rect.selected, .part-rect.selected:hover{fill:rgba(236,0,0,0.08); stroke:var(--ui-tertiary); stroke-dasharray:none;}
+  .part-label{font-family:var(--ui-mono); font-size:8px; fill:var(--ui-on-surface-variant); pointer-events:none;}
+  .resize-handle{fill:var(--ui-surface-lowest); stroke:var(--ui-on-surface); stroke-width:1; cursor:nwse-resize;}
+  .rotate-spoke{ stroke:var(--ui-tertiary); stroke-width:0.8; stroke-dasharray:2,1.5; }
+  .rotate-handle{ fill:var(--ui-tertiary); stroke:#fff; stroke-width:0.8; cursor:grab; }
+  .eraser-cursor{ fill:var(--ui-tertiary); stroke:#fff; stroke-width:0.6; pointer-events:none; }
+  .lasso-preview{ fill:rgba(236,0,0,0.10); stroke:var(--ui-tertiary); stroke-width:1; stroke-dasharray:3,2; pointer-events:none; }
+  svg#canvasSvg.erasing{ cursor:none; }
+  svg#canvasSvg.erasing .part-rect, svg#canvasSvg.erasing .resize-handle{ pointer-events:none; }
+  .part-table{margin-top:16px; font-size:12px; border-collapse:collapse; width:100%;}
+  .part-table th{color:var(--ui-on-surface-variant); font-weight:500;}
+  .part-table th, .part-table td{padding:4px; border-bottom:1px solid var(--ui-outline-variant); text-align:left;}
+  .part-table input[type=number]{width:52px; height:32px; padding:0 6px; font-size:12px;}
+  .part-table button{height:32px; padding:0 10px; font-size:12px;}
+  .part-table tr.is-selected td{background:var(--ui-primary-container);}
+  .part-table .part-radio{width:18px; height:18px; margin:0; accent-color:var(--ui-primary); cursor:pointer;}
+  .part-table .del{color:var(--ui-error); background:none; border:none; font-size:16px; padding:0 8px;}
+  .part-table .del:hover{background:var(--ui-error-container); text-decoration:none;}
+  .part-table .flipbtn{background:transparent; color:var(--ui-on-surface-variant); border:1px solid var(--ui-outline); border-radius:8px;}
+  .part-table .flipbtn.active{background:var(--ui-secondary-container); color:var(--ui-on-secondary-container); border-color:transparent;}
+  .render-error{padding:10px; font-size:12px; color:var(--ui-error); font-family:var(--ui-mono);}
+  .name-row{display:flex; gap:8px; margin-bottom:12px; align-items:center;}
+  .name-row label{font-size:12px; color:var(--ui-on-surface-variant); white-space:nowrap;}
+  .name-row input{flex:1;}
+  textarea#dataOut{width:100%; height:80px; font-family:var(--ui-mono); font-size:11px; border:1px solid var(--ui-on-surface-variant); border-radius:8px; background:#FFFFFF; color:var(--ui-on-surface); padding:8px 12px; resize:vertical;}
+  .out-actions{display:flex; gap:8px; margin:8px 0 16px;}
+  .send-box{max-width:460px; margin:12px auto 0; display:flex; align-items:center; gap:12px;}
+  .send-box button{flex:none;}
+  footer{background:var(--ui-surface-lowest); border-top:1px solid #949494; padding:16px 24px 24px; font-size:12px; color:var(--ui-on-surface-variant); line-height:1.8;}
+  footer a{text-decoration:none;}
+  .stroke-editor{background:var(--ui-surface); border-radius:8px; padding:12px; margin-top:16px; font-size:12px;}
+  .stroke-row{display:flex; align-items:center; gap:6px; padding:3px 0; border-bottom:1px solid var(--ui-outline-variant);}
+  .stroke-row .stroke-thumb{width:26px; height:26px; flex:none; background:var(--ui-surface-lowest); border:1px solid var(--ui-outline-variant); border-radius:4px;}
+  .stroke-row .stroke-thumb svg{width:100%; height:100%; display:block;}
+  .stroke-row code{flex:1; font-size:10px; font-family:var(--ui-mono); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  /* GlyphWiki の検索結果 */
+  .gw-results{display:grid; grid-template-columns:repeat(auto-fill, minmax(64px, 1fr)); gap:8px; max-height:280px; overflow-y:auto; margin:4px 0 12px;}
+  .gw-result{display:flex; flex-direction:column; align-items:center; gap:2px; height:auto; padding:6px 4px; border-radius:8px; background:var(--ui-surface-lowest); color:var(--ui-on-surface-variant); border:1px solid var(--ui-outline-variant); font-size:10px; line-height:12px; font-family:var(--ui-mono);}
+  .gw-result:hover{border-color:var(--ui-primary); background:var(--ui-primary-container); text-decoration:none;}
+  .gw-result img{width:44px; height:44px; display:block;}
+  .gw-result span{max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .gw-more{width:100%; margin-bottom:12px;}
+  /* 部首・部品のパレット(漢字検索と同じ並び) */
+  .radical-box{margin-bottom:12px;}
+  .radical-title{font-size:14px; font-weight:700; margin:4px 0 6px; color:var(--ui-on-surface);}
+  .radical-tabs{display:flex; flex-wrap:wrap; gap:2px; border-bottom:1px solid #949494;}
+  .radical-tabs button{height:32px; padding:0 8px; border:none; border-bottom:3px solid transparent; border-radius:0; background:transparent; color:var(--ui-on-surface-variant); font-size:12px; font-weight:400;}
+  .radical-tabs button:hover{background:var(--ui-primary-container); text-decoration:none; color:var(--ui-on-surface);}
+  .radical-tabs button[aria-selected="true"]{color:var(--ui-primary); border-bottom-color:var(--ui-primary); font-weight:700;}
+  .radical-palette{padding-top:6px;}
+  .radical-label{font-size:11px; color:var(--ui-on-surface-variant); margin:6px 0 4px;}
+  .radical-label:first-child{margin-top:0;}
+  .radical-keys{display:flex; flex-wrap:wrap; gap:4px;}
+  .radical-keys button{min-width:32px; height:32px; padding:0 4px; border:1px solid #949494; border-radius:6px; background:#FFFFFF; color:var(--ui-on-surface); font-size:17px; font-weight:400; line-height:1; font-family:"Hiragino Mincho ProN","Yu Mincho","Jigmo","Jigmo2","Jigmo3",serif;}
+  .radical-keys button:hover{background:var(--ui-primary-container); border-color:var(--ui-primary); text-decoration:none;}
+  .radical-keys button.is-variant{border-style:dashed;}
+  @media (max-width:900px){ .workshop{grid-template-columns:1fr;} }
+</style>
+</head>
+<body>
+
+<div id="debugBanner" style="display:none; background:#a3321e; color:#fff; font-family:'JetBrains Mono',monospace; font-size:12px; padding:8px 16px; white-space:pre-wrap;"></div>
+
+<header>
+  <div>
+    <h1>字体組立</h1>
+    <p>KAGEデータ形式とkage-engine（GPLv3／@kurgm版）を用いて部品を合成する道具です。GlyphWikiから部品を検索して取り込み、組み立て台に実際の字形をそのまま描画します。</p>
+  </div>
+  <div class="credit">
+    <span id="engineStatus">エンジン読み込み中…</span>
+  </div>
+</header>
+
+<div class="workshop">
+
+  <!-- LEFT -->
+  <div class="col">
+    <p class="col-title"><span class="idx">1</span>部品を探す</p>
+
+    <div class="row">
+      <input type="text" id="searchInput" placeholder="漢字 or GlyphWiki名 (例: 水 / u6c35-07)">
+    </div>
+    <div class="row">
+      <button id="gwSearchBtn" style="flex:1; padding:0 12px; white-space:nowrap;">部品を検索</button>
+      <button class="secondary" id="askBtn" style="flex:1; padding:0 12px; white-space:nowrap;">名前で取り込む</button>
+    </div>
+    <div class="status-line" id="fetchStatus"></div>
+    <div class="gw-results" id="gwResults"></div>
+
+    <div class="radical-box">
+      <p class="radical-title">部首・部品から探す</p>
+      <div class="radical-tabs" id="radicalTabs" role="tablist" aria-label="部首・部品の画数"></div>
+      <div class="radical-palette" id="radicalPalette" role="tabpanel"></div>
+    </div>
+
+
+  </div>
+
+  <!-- CENTER -->
+  <div class="col">
+    <p class="col-title"><span class="idx">2</span>組み立て台</p>
+    <div class="layout-toolbar">
+      <button class="secondary" id="clearCanvasBtn">クリア</button>
+      <button class="secondary" id="eraserModeBtn">消しゴムモード（投げなわ）</button>
+      <button class="secondary" id="clearEraseBtn">消しゴム跡をクリア</button>
+    </div>
+    <div class="canvas-wrap"><svg id="canvasSvg" viewBox="-48 -48 296 296"></svg></div>
+    <div class="send-box" id="sendToEditorBox" style="display:none;">
+      <button class="seal-btn" id="sendToEditorBtn">この字をエディタに入れる</button>
+      <span class="hint" style="margin:0;">組み立て台の字を、そのままの形で交利(漢文エディタ)のカーソル位置に入れます。</span>
+    </div>
+    <table class="part-table" id="partTable">
+      <thead><tr><th>選択</th><th>部品</th><th>x1</th><th>y1</th><th>x2</th><th>y2</th><th>回転°</th><th>⇋</th><th>⇵</th><th></th></tr></thead>
+      <tbody id="partTableBody"></tbody>
+    </table>
+    <p class="hint">検索結果の部品を押すと組み立て台に置けます。矩形はドラッグで移動、右下の■でサイズ変更（座標系は0〜200。灰色の部分まで、枠の外にはみ出して置けます）。灰色の枠線は余白ガイドです。漢文エディタに入れたとき、この枠がちょうど1文字分の大きさになります。四角は選んでいる部品にだけ表示されます。ほかの部品は、その部品の上を押すか、下の表のラジオボタンで選べます。選択中パーツの上に出る赤い丸のハンドルをドラッグすると好きな角度に回転できます（テーブルの「回転°」欄で数値入力も可）。表内の⇋⇵で左右反転・上下反転。「消しゴムモード」をONにすると投げなわ（クリックしたまま囲んで離す）でその範囲を消せます。選択中にBackspace/Deleteキーでそのパーツを削除できます。ショートカット：Ctrl+C コピー／Ctrl+V 貼り付け／Ctrl+Z 元に戻す／Ctrl+Shift+Z（またはCtrl+Y）やり直し。</p>
+    <div id="strokeEditorPanel" style="display:none;"></div>
+  </div>
+
+
+</div>
+
+<footer>
+  <strong>クレジット</strong><br>
+  字形の描画:<a href="https://github.com/kurgm/kage-engine" target="_blank" rel="noopener">kage-engine</a>(上地宏一・kurgm、GNU GPL-3.0)を、そのまま読み込んで使っています。<br>
+  部品の検索・取り込み:<a href="https://github.com/kurgm/kage-editor" target="_blank" rel="noopener">kage-editor</a>(kurgm、GNU GPL-3.0-only)と同じ方法で、GlyphWiki の API と kage-editor の作者が公開している中継サーバーを使っています。<br>
+  部品の字形データ:<a href="https://glyphwiki.org/" target="_blank" rel="noopener">GlyphWiki</a>(利用条件は <a href="https://glyphwiki.org/wiki/GlyphWiki:License" target="_blank" rel="noopener">GlyphWiki:License</a> に従います)。<br>
+  部首パレットの拡張漢字の表示:<a href="https://kamichikoichi.github.io/jigmo/" target="_blank" rel="noopener">字雲(Jigmo)</a>(上地宏一、CC0 1.0)。
+</footer>
+
+<script>
+(function(){
+  let KAGE_OK = false;
+  const engineStatusEl = document.getElementById('engineStatus');
+
+  function loadScript(url, timeoutMs){
+    return new Promise((resolve, reject)=>{
+      const s = document.createElement('script');
+      s.src = url;
+      let done = false;
+      const timer = setTimeout(()=>{ if(!done){done=true; reject(new Error('timeout'));} }, timeoutMs||6000);
+      s.onload = ()=>{ if(!done){done=true; clearTimeout(timer); resolve();} };
+      s.onerror = ()=>{ if(!done){done=true; clearTimeout(timer); reject(new Error('load error'));} };
+      document.head.appendChild(s);
+    });
+  }
+
+  async function tryLoadEngine(){
+    const candidates = [
+      'https://unpkg.com/@kurgm/kage-engine@0.6.1/dist/kage.min.js',
+      'https://cdn.jsdelivr.net/npm/@kurgm/kage-engine@0.6.1/dist/kage.min.js'
+    ];
+    for(const url of candidates){
+      try{
+        await loadScript(url);
+        if(typeof Kage !== 'undefined'){
+          KAGE_OK = true;
+          engineStatusEl.textContent = 'kage-engine 読み込み完了';
+          refreshLibraryList(); redrawCanvas();
+          return;
+        }
+      }catch(e){ /* try next */ }
+    }
+    engineStatusEl.textContent = 'kage-engine の読み込みに失敗しました（この機能自体はCDN scriptのみに依存）';
+  }
+
+  // ---------- state ----------
+  const library = new Map(); // name -> raw KAGE data string
+  let canvasParts = [];
+  let eraseMarks = []; // {x,y,r} circles painted in the canvas background colour
+  let eraserMode = false;
+  let uidCounter = 1;
+  let selectedUid = null;
+  let showSquares = true;
+  let clipboardPart = null;
+  let history = [{ parts: [], erases: [] }];
+  let historyIndex = 0;
+
+  function snapshotHistory(){
+    history = history.slice(0, historyIndex + 1);
+    history.push({ parts: canvasParts.map(p=>({...p})), erases: eraseMarks.map(m=>({...m})) });
+    if(history.length > 100) history.shift();
+    historyIndex = history.length - 1;
+  }
+  function undoHistory(){
+    if(historyIndex <= 0) return;
+    historyIndex--;
+    canvasParts = history[historyIndex].parts.map(p=>({...p}));
+    eraseMarks = history[historyIndex].erases.map(m=>({...m}));
+    selectedUid = null;
+    redrawCanvas();
+  }
+  function redoHistory(){
+    if(historyIndex >= history.length - 1) return;
+    historyIndex++;
+    canvasParts = history[historyIndex].parts.map(p=>({...p}));
+    eraseMarks = history[historyIndex].erases.map(m=>({...m}));
+    selectedUid = null;
+    redrawCanvas();
+  }
+
+  // Seed with the two components published in the kage-engine README (real data, zero network needed)
+
+  function isRefToken(tok){ return !!tok && /[a-zA-Z]/.test(tok); }
+  function extractReferencedNames(data){
+    if(isSnapshotData(data)) return new Set();
+    const names = new Set();
+    data.split('$').forEach(line=>{
+      const f = line.split(':');
+      for(let i=1;i<f.length;i++){ if(isRefToken(f[i])) names.add(f[i]); }
+    });
+    return names;
+  }
+  function toGlyphName(input){
+    input = (input||'').trim();
+    if(!input) return input;
+    const arr = Array.from(input);
+    if(arr.length === 1){
+      const cp = input.codePointAt(0);
+      if(cp > 127) return 'u' + cp.toString(16).padStart(4,'0');
+    }
+    return input;
+  }
+  function glyphUrl(name){ return `https://glyphwiki.org/json?name=${encodeURIComponent(name)}`; }
+
+  // Some saved parts can't be expressed as real KAGE stroke syntax at all
+  // (anything that used the eraser, or a rotation that couldn't be safely
+  // baked into coordinates — see below). For those we store a literal,
+  // pre-rendered SVG snapshot instead, marked with this prefix, and render
+  // it directly rather than feeding it to kage-engine.
+  const SNAPSHOT_PREFIX = '@@SVGSNAPSHOT@@';
+  function isSnapshotData(data){ return typeof data === 'string' && data.startsWith(SNAPSHOT_PREFIX); }
+
+  function renderGlyphToElement(container, name, extraLib){
+    const raw = (extraLib && extraLib.get(name)) || library.get(name);
+    if(isSnapshotData(raw)){
+      const inner = raw.slice(SNAPSHOT_PREFIX.length);
+      container.innerHTML = `<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" width="100%" height="100%">${inner}</svg>`;
+      return { ok:true, message:'' };
+    }
+    if(!KAGE_OK){ container.innerHTML=''; return {ok:false, message:'エンジン未読み込み'}; }
+    try{
+      const kage = new Kage();
+      for(const [n,d] of library.entries()){ if(!isSnapshotData(d)) kage.kBuhin.push(n,d); }
+      if(extraLib) for(const [n,d] of extraLib.entries()){ if(!isSnapshotData(d)) kage.kBuhin.push(n,d); }
+      const polygons = new Kage.Polygons();
+      kage.makeGlyph(polygons, name);
+      const svgStr = polygons.generateSVG();
+      const hasPath = /<(path|polygon)\b/.test(svgStr);
+      container.innerHTML = svgStr;
+      const svgEl = container.querySelector('svg');
+      if(svgEl){ svgEl.setAttribute('width','100%'); svgEl.setAttribute('height','100%'); if(!svgEl.getAttribute('viewBox')) svgEl.setAttribute('viewBox','0 0 200 200'); }
+      if(!hasPath) return {ok:false, message:'描画結果が空でした（未解決の部品参照が残っている可能性）'};
+      return {ok:true, message:''};
+    }catch(e){
+      container.innerHTML = '';
+      return {ok:false, message: e.message || String(e)};
+    }
+  }
+
+  const libListEl = document.getElementById('libList');
+  // Rough stroke-count estimate, used to order the parts shelf. Counts each
+  // non-reference stroke line, and recurses into 99: sub-references so a
+  // composed part's count reflects everything it's built from. This is an
+  // approximation (not the real dictionary 画数), based on how many drawn
+  // lines actually make it up — but it correlates well and needs no
+  // external stroke-count database.
+  function estimateStrokeCount(name, path){
+    const data = library.get(name);
+    if(!data) return 0;
+    if(isSnapshotData(data)) return Infinity; // unknown complexity — sort last
+    path = path || new Set();
+    if(path.has(name)) return 0; // cycle guard
+    const nextPath = new Set(path); nextPath.add(name);
+    let count = 0;
+    data.split('$').forEach(line=>{
+      if(!line || line === '0:0:0:0') return;
+      const f = line.split(':');
+      if(f[0] === '99'){
+        if(f[7]) count += estimateStrokeCount(f[7], nextPath);
+      } else {
+        count += 1;
+      }
+    });
+    return count;
+  }
+
+  function refreshLibraryList(){
+    if(!libListEl) return; // 取り込んだ部品の一覧は表示しない
+    libListEl.innerHTML = '';
+    const names = [...library.keys()].filter(n=>!/__rot\d+$/.test(n));
+    names.sort((a,b)=> estimateStrokeCount(a) - estimateStrokeCount(b));
+    names.forEach(name=>{
+      const thumb = document.createElement('div');
+      thumb.className = 'lib-thumb-grid';
+      thumb.title = name;
+      thumb.onclick = ()=> addPartToCanvas(name);
+      libListEl.appendChild(thumb);
+      const result = renderGlyphToElement(thumb, name);
+      if(!result.ok) thumb.classList.add('lib-thumb-error');
+      if(isSnapshotData(library.get(name))) thumb.classList.add('lib-thumb-snapshot');
+    });
+  }
+
+
+  // ---------- canvas ----------
+  const svg = document.getElementById('canvasSvg');
+  const NS = 'http://www.w3.org/2000/svg';
+  function drawGrid(){
+    const outside = document.createElementNS(NS,'rect');
+    outside.setAttribute('x', VIEW_MIN); outside.setAttribute('y', VIEW_MIN);
+    outside.setAttribute('width', VIEW_MAX - VIEW_MIN); outside.setAttribute('height', VIEW_MAX - VIEW_MIN);
+    outside.setAttribute('class','canvas-outside'); svg.appendChild(outside);
+    const frame = document.createElementNS(NS,'rect');
+    frame.setAttribute('x', 0); frame.setAttribute('y', 0); frame.setAttribute('width', 200); frame.setAttribute('height', 200);
+    frame.setAttribute('class','canvas-frame'); svg.appendChild(frame);
+    for(let i=0;i<=200;i+=20){
+      const v = document.createElementNS(NS,'line');
+      v.setAttribute('x1',i); v.setAttribute('y1',0); v.setAttribute('x2',i); v.setAttribute('y2',200);
+      v.setAttribute('class','grid-line'); svg.appendChild(v);
+      const h = document.createElementNS(NS,'line');
+      h.setAttribute('x1',0); h.setAttribute('y1',i); h.setAttribute('x2',200); h.setAttribute('y2',i);
+      h.setAttribute('class','grid-line'); svg.appendChild(h);
+    }
+  }
+  // A guide frame marking roughly where a kanji's body should sit within
+  // the 10x10 grid — real kanji are drawn with a small margin on all four
+  // sides rather than touching the edges of the em-square, so this sits
+  // one grid cell in from each edge (20-180 of the 0-200 space), which is
+  // a common, well-balanced inset for this kind of design grid.
+  // この余白ガイドの枠を、漢文エディタに入れたときの字の外枠(1文字分のマス)として扱う
+  const GUIDE_INSET = 13;
+  function drawMarginGuide(){
+    const inset = GUIDE_INSET;
+    const rect = document.createElementNS(NS,'rect');
+    rect.setAttribute('x',inset); rect.setAttribute('y',inset);
+    rect.setAttribute('width',200-inset*2); rect.setAttribute('height',200-inset*2);
+    rect.setAttribute('class','margin-guide');
+    svg.appendChild(rect);
+  }
+  function svgPoint(evt){
+    const pt = svg.createSVGPoint(); pt.x = evt.clientX; pt.y = evt.clientY;
+    return pt.matrixTransform(svg.getScreenCTM().inverse());
+  }
+  // 部品は、プレビューの枠(0〜200)から上下左右に CANVAS_MARGIN だけはみ出せる。それより外には出さない。
+  // (組み立て台の表示範囲もこの外側まで広げてあるので、はみ出した部品や四角がほかのボタンに重なることはない)
+  const CANVAS_MARGIN = 40;
+  const CANVAS_MIN = -CANVAS_MARGIN, CANVAS_MAX = 200 + CANVAS_MARGIN;
+  const VIEW_MIN = -48, VIEW_MAX = 248; // 表示する範囲。四角の線や■が端で切れないよう、動ける範囲より少し広い
+  function clamp(v){ return Math.max(CANVAS_MIN, Math.min(CANVAS_MAX, v)); }
+
+  // ---------- eraser & per-part placement transform ----------
+  let isErasing = false;
+
+  // Finds which part's bounding box a canvas point falls inside, checking
+  // topmost (last-drawn) part first — this is what "belongs to" for erasing.
+  // (Axis-aligned test — a reasonable approximation even for rotated parts.)
+  function findPartAt(x, y){
+    for(let i=canvasParts.length-1; i>=0; i--){
+      const p = canvasParts[i];
+      const minX=Math.min(p.x1,p.x2), maxX=Math.max(p.x1,p.x2);
+      const minY=Math.min(p.y1,p.y2), maxY=Math.max(p.y1,p.y2);
+      if(x>=minX && x<=maxX && y>=minY && y<=maxY) return p;
+    }
+    return null;
+  }
+
+  // Describes the full placement transform for a part: its own 0-200 local
+  // square is centred, flipped (negative scale), scaled to its bounding
+  // box, then rotated freely around the box's centre.
+  function partTransformInfo(part){
+    const x1=Math.min(part.x1,part.x2), x2=Math.max(part.x1,part.x2);
+    const y1=Math.min(part.y1,part.y2), y2=Math.max(part.y1,part.y2);
+    const w=x2-x1, h=y2-y1;
+    return {
+      cx: x1+w/2, cy: y1+h/2,
+      sx: (w/200)*(part.flipH?-1:1),
+      sy: (h/200)*(part.flipV?-1:1),
+      rad: (part.rotation||0)*Math.PI/180
+    };
+  }
+  function localToCanvas(part, lx, ly){
+    const {cx,cy,sx,sy,rad} = partTransformInfo(part);
+    let x=(lx-100)*sx, y=(ly-100)*sy;
+    x+=cx; y+=cy;
+    const dx=x-cx, dy=y-cy, c=Math.cos(rad), s=Math.sin(rad);
+    return { x: cx+dx*c-dy*s, y: cy+dx*s+dy*c };
+  }
+  function canvasToLocal(part, px, py){
+    const {cx,cy,sx,sy,rad} = partTransformInfo(part);
+    const dx=px-cx, dy=py-cy, c=Math.cos(-rad), s=Math.sin(-rad);
+    let x = cx+dx*c-dy*s, y = cy+dx*s+dy*c;
+    x-=cx; y-=cy;
+    x/= (sx||1e-9); y/=(sy||1e-9);
+    return { x:x+100, y:y+100 };
+  }
+
+  // Erase marks are lasso loops, stored in whichever part they were drawn
+  // over, in that part's own LOCAL 0-200 coordinate space (i.e. before its
+  // placement transform is applied). That means moving, resizing, flipping,
+  // AND rotating the part all carry the erased shape along with it for
+  // free — it's masked before the transform, not after.
+  let currentLassoPart = null;
+  let currentLassoLocal = [];   // points in the part's local space (for storage)
+  let currentLassoCanvas = [];  // the same points in canvas space (for the live preview line)
+
+  svg.addEventListener('pointermove', (evt)=>{
+    const pt = svgPoint(evt);
+    if(eraserMode) updateEraserCursor(pt);
+    if(isErasing && currentLassoPart){
+      const last = currentLassoCanvas[currentLassoCanvas.length-1];
+      if(!last || Math.hypot(pt.x-last.x, pt.y-last.y) > 1.5){
+        currentLassoCanvas.push(pt);
+        currentLassoLocal.push(canvasToLocal(currentLassoPart, pt.x, pt.y));
+        redrawCanvas();
+      }
+      updateEraserCursor(pt);
+    }
+  });
+  svg.addEventListener('pointerdown', (evt)=>{
+    if(!eraserMode) return;
+    evt.preventDefault();
+    const pt = svgPoint(evt);
+    const part = findPartAt(pt.x, pt.y);
+    if(!part) return; // lasso needs to start on top of a part
+    isErasing = true;
+    currentLassoPart = part;
+    currentLassoCanvas = [pt];
+    currentLassoLocal = [canvasToLocal(part, pt.x, pt.y)];
+    redrawCanvas();
+    updateEraserCursor(pt);
+    window.addEventListener('pointerup', endErase);
+  });
+  function endErase(){
+    if(isErasing && currentLassoPart && currentLassoLocal.length >= 3){
+      eraseMarks.push({ partUid: currentLassoPart.uid, points: currentLassoLocal.slice() });
+      snapshotHistory();
+    }
+    isErasing = false;
+    currentLassoPart = null;
+    currentLassoLocal = [];
+    currentLassoCanvas = [];
+    redrawCanvas();
+    window.removeEventListener('pointerup', endErase);
+  }
+  svg.addEventListener('pointerleave', ()=>{ if(!isErasing) updateEraserCursor(null); });
+
+  // A part can only have its rotation safely "baked" into real, portable
+  // KAGE data if it's pure raw strokes (no nested 99: sub-references) —
+  // rotating a nested reference's bounding box wouldn't actually rotate the
+  // referenced sub-part, it would just skew its box. So this only rewrites
+  // the coordinate pairs of plain stroke lines.
+  function hasNestedReference(data){
+    if(isSnapshotData(data)) return true; // treat as ineligible for baking either way
+    return data.split('$').some(l=>l.split(':')[0]==='99');
+  }
+  function rotateLocalPoint(x, y, rad){
+    const cx=100, cy=100, dx=x-cx, dy=y-cy, c=Math.cos(rad), s=Math.sin(rad);
+    return { x: cx+dx*c-dy*s, y: cy+dx*s+dy*c };
+  }
+  // Rewrites every (x,y) coordinate pair in a stroke's data by the given
+  // rotation, rotating around the centre of its own 200x200 local square.
+  // Returns null if any line doesn't cleanly split into an even set of
+  // coordinate pairs after its 3-field header (i.e. we're not confident
+  // enough about its layout to touch it safely).
+  function bakeRotationIntoData(data, rotationDeg){
+    const rad = rotationDeg * Math.PI/180;
+    const lines = data.split('$').map(line=>{
+      const f = line.split(':');
+      if(f.length < 3 || (f.length-3) % 2 !== 0) return null;
+      const head = f.slice(0,3);
+      const coords = f.slice(3);
+      const out = [];
+      for(let i=0;i<coords.length;i+=2){
+        const x = parseFloat(coords[i]), y = parseFloat(coords[i+1]);
+        if(Number.isNaN(x) || Number.isNaN(y)) return null;
+        const pt = rotateLocalPoint(x, y, rad);
+        out.push(Math.round(pt.x), Math.round(pt.y));
+      }
+      return head.concat(out).join(':');
+    });
+    if(lines.some(l=>l===null)) return null;
+    return lines.join('$');
+  }
+  // Returns a usable buhin name that already has the rotation baked in as
+  // real coordinates (creating + caching it in the library on first use),
+  // or the original name unchanged if rotation is 0, or null if this part
+  // isn't eligible for safe baking (has nested references).
+  function getOrCreateRotatedVariant(baseName, rotationDeg){
+    const deg = Math.round(((rotationDeg%360)+360)%360);
+    if(!deg) return baseName;
+    const data = library.get(baseName);
+    if(!data || hasNestedReference(data)) return null;
+    const variantName = `${baseName}__rot${deg}`;
+    if(!library.has(variantName)){
+      const baked = bakeRotationIntoData(data, deg);
+      if(baked == null) return null;
+      library.set(variantName, baked);
+    }
+    return variantName;
+  }
+
+  function buildComposedData(parts){
+    return parts.map(p=>{
+      let x1=Math.round(p.x1), y1=Math.round(p.y1), x2=Math.round(p.x2), y2=Math.round(p.y2);
+      // Horizontal/vertical flip of a whole referenced part is done by swapping
+      // the corners of its placement rectangle — this is plain linear
+      // interpolation reversal, a completely native/safe KAGE mechanism (no
+      // exotic engine feature needed), and stays valid, re-exportable data.
+      if(p.flipH){ const t=x1; x1=x2; x2=t; }
+      if(p.flipV){ const t=y1; y1=y2; y2=t; }
+      let refName = p.name;
+      if(p.rotation){
+        const variant = getOrCreateRotatedVariant(p.name, p.rotation);
+        // If baking wasn't possible (part has nested sub-references), fall
+        // back to the unrotated original in the exported text — it will
+        // still show rotated live on the canvas, just not in this data.
+        if(variant) refName = variant;
+      }
+      return `99:0:0:${x1}:${y1}:${x2}:${y2}:${refName}`;
+    }).join('$');
+  }
+
+  function drawGlyphBackground(targetSvg){
+    targetSvg = targetSvg || svg;
+    const composed = buildComposedData(canvasParts);
+    if(dataOut && targetSvg === svg){
+      dataOut.value = eraseMarks.length > 0
+        ? '（消しゴムを使っているため、通常のKAGEテキストでは正確に表せません。右の「部品として保存」を使うと、見た目そのままの形でこのツール内に保存・再利用できます。）\n\n参考（消しゴム適用前のKAGE参照データ）：\n' + composed
+        : composed;
+    }
+    if(canvasParts.length === 0) return;
+
+    // IMPORTANT: parts with no rotation are combined into ONE KAGE reference
+    // string and rendered through a SINGLE kage-engine call, exactly like
+    // GlyphWiki itself does. This matters because kage-engine's own
+    // placement ("展開") algorithm redraws each stroke's brush geometry
+    // freshly at the target size — including its built-in stroke-width /
+    // uroko / kakato compensation — so proportions stay calligraphic even
+    // under non-uniform scaling. Naively rendering a part alone and then
+    // slapping an SVG scale() transform on the FINISHED shape (as rotation
+    // requires) skips all of that compensation and squashes it like a
+    // stretched photo — that was the regression. So: kage-engine's own
+    // composition is the default for everything that doesn't strictly need
+    // rotation; the custom per-part transform below is used ONLY for parts
+    // that actually have a rotation angle, since KAGE's reference-line
+    // format has no way to express rotation at all.
+    const normalParts = canvasParts.filter(p=>!p.rotation);
+    const rotatedParts = canvasParts.filter(p=>p.rotation);
+
+    if(normalParts.length){
+      const combinedData = buildComposedData(normalParts);
+      const tmpName = '__normal_composite__';
+      const tmp = new Map(); tmp.set(tmpName, combinedData);
+      const scratch = document.createElement('div');
+      const result = renderGlyphToElement(scratch, tmpName, tmp);
+      const g = document.createElementNS(NS,'g');
+      g.setAttribute('class','glyph-bg');
+      if(result.ok){
+        const inner = scratch.querySelector('svg');
+        if(inner) while(inner.firstChild) g.appendChild(inner.firstChild);
+        applyCombinedEraseMask(g, normalParts, targetSvg);
+      } else {
+        const t = document.createElementNS(NS,'text');
+        t.setAttribute('x','20'); t.setAttribute('y','100');
+        t.setAttribute('font-size','10'); t.setAttribute('fill','var(--seal)');
+        t.textContent = '✗';
+        g.appendChild(t);
+      }
+      targetSvg.appendChild(g);
+    }
+
+    // Rotated parts: rendered individually (kage-engine can't express
+    // rotation natively), then placed with a manual transform.
+    rotatedParts.forEach(part=>{
+      if(!library.has(part.name)) return;
+      const scratch = document.createElement('div');
+      const result = renderGlyphToElement(scratch, part.name);
+      const partG = document.createElementNS(NS,'g');
+      if(result.ok){
+        const inner = scratch.querySelector('svg');
+        if(inner) while(inner.firstChild) partG.appendChild(inner.firstChild);
+        applyPartEraseMask(partG, part, targetSvg);
+      } else {
+        const t = document.createElementNS(NS,'text');
+        t.setAttribute('x','20'); t.setAttribute('y','100');
+        t.setAttribute('font-size','10'); t.setAttribute('fill','var(--seal)');
+        t.textContent = '✗';
+        partG.appendChild(t);
+      }
+      const {cx,cy,sx,sy,rad} = partTransformInfo(part);
+      const deg = rad * 180/Math.PI;
+      const g = document.createElementNS(NS,'g');
+      g.setAttribute('transform', `rotate(${deg} ${cx} ${cy}) translate(${cx} ${cy}) scale(${sx} ${sy}) translate(-100 -100)`);
+      g.appendChild(partG);
+      targetSvg.appendChild(g);
+    });
+  }
+
+  // Applies ONE shared erase mask (in absolute canvas coordinates) across
+  // several parts that were rendered together as a single kage-engine
+  // composite — each mark's local points are mapped through its OWNING
+  // part's current placement transform to get its live canvas position,
+  // so it still follows that part correctly if moved/resized.
+  function applyCombinedEraseMask(g, parts, targetSvg){
+    const partIds = new Set(parts.map(p=>p.uid));
+    const relevant = eraseMarks.filter(m=>partIds.has(m.partUid));
+    if(relevant.length === 0) return;
+    const maskId = `eraseMask-${maskIdCounter++}`;
+    const defs = document.createElementNS(NS,'defs');
+    const mask = document.createElementNS(NS,'mask');
+    mask.setAttribute('id', maskId);
+    mask.setAttribute('maskUnits','userSpaceOnUse');
+    const base = document.createElementNS(NS,'rect');
+    base.setAttribute('x','-50'); base.setAttribute('y','-50');
+    base.setAttribute('width','300'); base.setAttribute('height','300');
+    base.setAttribute('fill','#fff');
+    mask.appendChild(base);
+    relevant.forEach(m=>{
+      const owner = parts.find(p=>p.uid===m.partUid);
+      if(!owner) return;
+      const pts = m.points.map(pt=>localToCanvas(owner, pt.x, pt.y));
+      const poly = document.createElementNS(NS,'polygon');
+      poly.setAttribute('points', pts.map(p=>`${p.x},${p.y}`).join(' '));
+      poly.setAttribute('fill','#000');
+      mask.appendChild(poly);
+    });
+    defs.appendChild(mask);
+    targetSvg.appendChild(defs);
+    g.setAttribute('mask', `url(#${maskId})`);
+  }
+
+  // Genuinely removes the erased circles from a part's own ink, via an SVG
+  // mask defined in that part's LOCAL 0-200 space (applied before the
+  // placement/rotation transform above) — so the erased spot is carried
+  // along automatically whenever the part moves, resizes, flips, or
+  // rotates. White in the mask = kept, black = made transparent: true
+  // removal, not a colour-matched overpaint.
+  let maskIdCounter = 1;
+  function applyPartEraseMask(g, part, targetSvg){
+    const marks = eraseMarks.filter(m=>m.partUid===part.uid);
+    if(marks.length === 0) return;
+    const maskId = `eraseMask-${maskIdCounter++}`;
+    const defs = document.createElementNS(NS,'defs');
+    const mask = document.createElementNS(NS,'mask');
+    mask.setAttribute('id', maskId);
+    mask.setAttribute('maskUnits','userSpaceOnUse');
+    const base = document.createElementNS(NS,'rect');
+    base.setAttribute('x','-50'); base.setAttribute('y','-50');
+    base.setAttribute('width','300'); base.setAttribute('height','300');
+    base.setAttribute('fill','#fff');
+    mask.appendChild(base);
+    marks.forEach(m=>{
+      const poly = document.createElementNS(NS,'polygon');
+      poly.setAttribute('points', m.points.map(p=>`${p.x},${p.y}`).join(' '));
+      poly.setAttribute('fill','#000');
+      mask.appendChild(poly);
+    });
+    defs.appendChild(mask);
+    targetSvg.appendChild(defs);
+    g.setAttribute('mask', `url(#${maskId})`);
+  }
+
+  let eraserCursorEl = null;
+  function updateEraserCursor(pt){
+    if(!eraserCursorEl) return;
+    if(!pt){ eraserCursorEl.setAttribute('display','none'); return; }
+    eraserCursorEl.setAttribute('display', eraserMode ? 'inline' : 'none');
+    eraserCursorEl.setAttribute('cx', pt.x);
+    eraserCursorEl.setAttribute('cy', pt.y);
+    eraserCursorEl.setAttribute('r', 2.2);
+  }
+
+  function redrawCanvas(){
+    svg.innerHTML = '';
+    svg.setAttribute('class', eraserMode ? 'erasing' : '');
+    drawGrid();
+    drawMarginGuide();
+    drawGlyphBackground(); // erased circles are now real transparency (SVG mask), so the grid drawn above already shows through correctly
+    if(showSquares){
+      // Draw the selected (red) part LAST so its rect and resize handle are
+      // always on top — clicking its handle always hits it, even if another
+      // part's rectangle visually overlaps that corner.
+      const order = canvasParts.slice().sort((a,b)=> (a.uid===selectedUid?1:0) - (b.uid===selectedUid?1:0));
+      order.forEach(p=>{
+        const rect = document.createElementNS(NS,'rect');
+        rect.setAttribute('x', Math.min(p.x1,p.x2)); rect.setAttribute('y', Math.min(p.y1,p.y2));
+        rect.setAttribute('width', Math.abs(p.x2-p.x1)); rect.setAttribute('height', Math.abs(p.y2-p.y1));
+        rect.setAttribute('class', 'part-rect' + (p.uid===selectedUid ? ' selected' : ''));
+        rect.addEventListener('pointerdown', (e)=> startDrag(e, p, 'move'));
+        svg.appendChild(rect);
+        // 四角は、選んでいる部品(とマウスを載せた部品)にだけ見せる。ほかの部品の四角は見えないが、押せば選べる
+        if(p.uid !== selectedUid) return;
+        const label = document.createElementNS(NS,'text');
+        label.setAttribute('x', Math.min(p.x1,p.x2)+2); label.setAttribute('y', Math.min(p.y1,p.y2)+8);
+        label.setAttribute('class','part-label'); label.textContent = p.name;
+        svg.appendChild(label);
+        const handle = document.createElementNS(NS,'rect');
+        handle.setAttribute('x', p.x2-5); handle.setAttribute('y', p.y2-5);
+        handle.setAttribute('width',8); handle.setAttribute('height',8);
+        handle.setAttribute('class','resize-handle');
+        handle.addEventListener('pointerdown', (e)=>{ e.stopPropagation(); startDrag(e,p,'resize'); });
+        svg.appendChild(handle);
+        if(p.uid === selectedUid){
+          // A draggable rotate handle, offset above the shape's own current
+          // "up" direction (so it orbits together with the rotation),
+          // connected by a thin spoke line for clarity.
+          let anchor = localToCanvas(p, 100, 0);
+          let knob = localToCanvas(p, 100, -28);
+          const outOfView = (q) => q.x < VIEW_MIN + 6 || q.y < VIEW_MIN + 6 || q.x > VIEW_MAX - 6 || q.y > VIEW_MAX - 6;
+          if(outOfView(knob)){ anchor = localToCanvas(p, 100, 200); knob = localToCanvas(p, 100, 228); }
+          // 上にも下にも出せないほど大きいときは、部品の内側(上の辺の少し下)に出す
+          if(outOfView(knob)){ anchor = localToCanvas(p, 100, 0); knob = localToCanvas(p, 100, 20); }
+          const spoke = document.createElementNS(NS,'line');
+          spoke.setAttribute('x1', anchor.x); spoke.setAttribute('y1', anchor.y);
+          spoke.setAttribute('x2', knob.x); spoke.setAttribute('y2', knob.y);
+          spoke.setAttribute('class','rotate-spoke');
+          svg.appendChild(spoke);
+          const rotHandle = document.createElementNS(NS,'circle');
+          rotHandle.setAttribute('cx', knob.x); rotHandle.setAttribute('cy', knob.y);
+          rotHandle.setAttribute('r', 5);
+          rotHandle.setAttribute('class','rotate-handle');
+          rotHandle.addEventListener('pointerdown', (e)=>{ e.stopPropagation(); startDrag(e,p,'rotate'); });
+          svg.appendChild(rotHandle);
+        }
+      });
+    }
+    // In-progress lasso outline, drawn live while dragging.
+    if(isErasing && currentLassoCanvas.length > 1){
+      const poly = document.createElementNS(NS,'polyline');
+      poly.setAttribute('points', currentLassoCanvas.map(p=>`${p.x},${p.y}`).join(' '));
+      poly.setAttribute('class','lasso-preview');
+      svg.appendChild(poly);
+    }
+    // Eraser cursor mark — always drawn last (topmost) so it's visible over
+    // everything while eraser mode is on.
+    eraserCursorEl = document.createElementNS(NS,'circle');
+    eraserCursorEl.setAttribute('class','eraser-cursor');
+    eraserCursorEl.setAttribute('display','none');
+    svg.appendChild(eraserCursorEl);
+    refreshPartTable();
+    refreshStrokeEditor();
+  }
+
+  let dragState = null;
+  function startDrag(evt, part, mode){
+    evt.preventDefault();
+    selectedUid = part.uid;
+    const start = svgPoint(evt);
+    dragState = { part, mode, startX:start.x, startY:start.y, origX1:part.x1, origY1:part.y1, origX2:part.x2, origY2:part.y2 };
+    if(mode === 'rotate'){
+      // つまみが部品の上でも下でも、つかんだ時点の角度から相対的に回す(つかんだ瞬間に回らないように)
+      const cx = (Math.min(part.x1,part.x2) + Math.max(part.x1,part.x2)) / 2, cy = (Math.min(part.y1,part.y2) + Math.max(part.y1,part.y2)) / 2;
+      dragState.rotOffset = (part.rotation || 0) - (Math.atan2(start.y-cy, start.x-cx)*180/Math.PI + 90);
+    }
+    window.addEventListener('pointermove', onDrag);
+    window.addEventListener('pointerup', endDrag);
+    redrawCanvas();
+  }
+  function onDrag(evt){
+    if(!dragState) return;
+    const cur = svgPoint(evt);
+    const dx = cur.x - dragState.startX, dy = cur.y - dragState.startY;
+    const p = dragState.part;
+    if(dragState.mode === 'move'){
+      const w = dragState.origX2 - dragState.origX1, h = dragState.origY2 - dragState.origY1;
+      const fit = (v, size) => Math.max(CANVAS_MIN - Math.min(0, size), Math.min(CANVAS_MAX - Math.max(0, size), v));
+      p.x1 = fit(dragState.origX1 + dx, w); p.y1 = fit(dragState.origY1 + dy, h);
+      p.x2 = p.x1 + w; p.y2 = p.y1 + h;
+    } else if(dragState.mode === 'rotate'){
+      const x1=Math.min(p.x1,p.x2), x2=Math.max(p.x1,p.x2);
+      const y1=Math.min(p.y1,p.y2), y2=Math.max(p.y1,p.y2);
+      const cx=(x1+x2)/2, cy=(y1+y2)/2;
+      let deg = Math.atan2(cur.y-cy, cur.x-cx)*180/Math.PI + 90 + (dragState.rotOffset || 0);
+      deg = ((deg % 360) + 360) % 360;
+      p.rotation = Math.round(deg);
+    } else {
+      p.x2 = clamp(dragState.origX2 + dx); p.y2 = clamp(dragState.origY2 + dy);
+    }
+    redrawCanvas();
+  }
+  function endDrag(){
+    if(dragState) snapshotHistory();
+    dragState = null;
+    window.removeEventListener('pointermove', onDrag);
+    window.removeEventListener('pointerup', endDrag);
+  }
+
+  function refreshPartTable(){
+    const tbody = document.getElementById('partTableBody');
+    tbody.innerHTML = '';
+    canvasParts.forEach(p=>{
+      const tr = document.createElement('tr');
+      const data = library.get(p.name);
+      const bakeable = !p.rotation || !data || !hasNestedReference(data);
+      if(p.uid === selectedUid) tr.className = 'is-selected';
+      tr.innerHTML = `<td><input type="radio" name="partSelect" class="part-radio"${p.uid === selectedUid ? ' checked' : ''} aria-label="「${p.name}」を選ぶ"></td><td>${p.name}${p.rotation && !bakeable ? ' <span title="この部品は他の部品への参照を含むため、回転はデータには反映されません（見た目のみ）" style="color:var(--seal); cursor:help;">⚠</span>' : ''}</td>
+        <td><input type="number" data-f="x1" value="${Math.round(p.x1)}"></td>
+        <td><input type="number" data-f="y1" value="${Math.round(p.y1)}"></td>
+        <td><input type="number" data-f="x2" value="${Math.round(p.x2)}"></td>
+        <td><input type="number" data-f="y2" value="${Math.round(p.y2)}"></td>
+        <td><input type="number" class="rot-input" min="0" max="359" value="${Math.round(p.rotation||0)}" style="width:44px;" title="回転角度(度)"></td>
+        <td><button class="flipbtn${p.flipH?' active':''}" data-flip="flipH" title="左右反転">⇋</button></td>
+        <td><button class="flipbtn${p.flipV?' active':''}" data-flip="flipV" title="上下反転">⇵</button></td>
+        <td><button class="del">×</button></td>`;
+      tr.querySelector('.part-radio').addEventListener('change', ()=>{ selectedUid = p.uid; redrawCanvas(); });
+      tr.querySelectorAll('input[data-f]').forEach(inp=>{
+        inp.addEventListener('change', ()=>{ p[inp.dataset.f] = clamp(parseFloat(inp.value)||0); redrawCanvas(); snapshotHistory(); });
+      });
+      tr.querySelector('.rot-input').addEventListener('change', (e)=>{
+        let v = parseFloat(e.target.value)||0;
+        v = ((v % 360)+360)%360;
+        p.rotation = v; redrawCanvas(); snapshotHistory();
+      });
+      tr.querySelector('[data-flip="flipH"]').addEventListener('click', ()=>{
+        p.flipH = !p.flipH; redrawCanvas(); snapshotHistory();
+      });
+      tr.querySelector('[data-flip="flipV"]').addEventListener('click', ()=>{
+        p.flipV = !p.flipV; redrawCanvas(); snapshotHistory();
+      });
+      tr.querySelector('.del').addEventListener('click', ()=>{
+        canvasParts = canvasParts.filter(x=>x.uid!==p.uid);
+        eraseMarks = eraseMarks.filter(m=>m.partUid!==p.uid);
+        redrawCanvas(); snapshotHistory();
+      });
+      tbody.appendChild(tr);
+    });
+  }
+
+  // Splits a part's underlying KAGE data into its individual $-separated
+  // stroke/reference lines and lets the person toggle each one off, then
+  // saves the remaining lines as a brand-new named part. This is the
+  // "vector-native" way to remove a single stroke (e.g. turning 兵 into 乒
+  // by dropping its bottom-right dot) — it edits real KAGE data directly,
+  // no rasterizing or white-paint-over needed.
+  function refreshStrokeEditor(){
+    const panel = document.getElementById('strokeEditorPanel');
+    const part = canvasParts.find(x=>x.uid===selectedUid);
+    if(!part || !library.has(part.name)){ panel.style.display='none'; panel.innerHTML=''; return; }
+    const data = library.get(part.name);
+    if(isSnapshotData(data)){
+      panel.style.display = 'block';
+      panel.innerHTML = `<div style="font-weight:700; margin-bottom:4px;">「${part.name}」のストローク編集</div>
+        <p class="hint" style="margin:0;">このパーツはSVGスナップショット（消しゴムや回転を焼き込んだ見た目そのもの）として保存されているため、ストローク単位の編集はできません。</p>`;
+      return;
+    }
+    const lines = data.split('$').filter(l=>l.length);
+    panel.style.display = 'block';
+    panel.innerHTML = `
+      <div style="font-weight:700; margin-bottom:6px;">「${part.name}」のストローク編集（一部を消す）</div>
+      <p class="hint" style="margin:0 0 8px;">不要な線のチェックを外してから保存すると、その線を除いた新しい部品を作れます（例：兵→乒）。</p>
+      <div id="strokeRows"></div>
+      <div class="row" style="margin-top:8px;">
+        <input type="text" id="strokeSaveName" value="${part.name}-edit">
+        <button id="strokeSaveBtn">この構成で保存</button>
+      </div>
+      <label style="display:flex; align-items:center; gap:6px; margin-top:6px; font-size:11px;">
+        <input type="checkbox" id="strokeReplaceCheck" checked> 保存後、このキャンバス上のパーツを新しい部品に差し替える
+      </label>
+    `;
+    const rowsEl = panel.querySelector('#strokeRows');
+    lines.forEach((line, i)=>{
+      const row = document.createElement('div');
+      row.className = 'stroke-row';
+      const thumb = document.createElement('div');
+      thumb.className = 'stroke-thumb';
+      row.innerHTML = `<input type="checkbox" class="strokeToggle" data-i="${i}" checked>`;
+      row.appendChild(thumb);
+      const code = document.createElement('code');
+      code.textContent = line;
+      row.appendChild(code);
+      rowsEl.appendChild(row);
+      // Render just this one line as a standalone glyph for a quick preview.
+      renderGlyphToElement(thumb, '__stroke_preview__', new Map([['__stroke_preview__', line]]));
+    });
+    panel.querySelector('#strokeSaveBtn').addEventListener('click', ()=>{
+      const newName = panel.querySelector('#strokeSaveName').value.trim();
+      if(!newName){ showToast('部品名を入力してください', true); return; }
+      const checks = Array.from(panel.querySelectorAll('.strokeToggle'));
+      const kept = checks.filter(c=>c.checked).map(c=>lines[parseInt(c.dataset.i,10)]);
+      if(kept.length === 0){ showToast('少なくとも1本は残してください', true); return; }
+      library.set(newName, kept.join('$'));
+      refreshLibraryList();
+      if(panel.querySelector('#strokeReplaceCheck').checked){
+        part.name = newName;
+      }
+      redrawCanvas();
+      snapshotHistory();
+      showToast(`「${newName}」を保存しました（${lines.length - kept.length}本除外）`);
+    });
+  }
+
+
+  function addPartToCanvas(name){
+    const offset = (canvasParts.length % 4) * 6;
+    const uid = uidCounter++;
+    canvasParts.push({ uid, name, x1:20+offset, y1:20+offset, x2:180-offset, y2:180-offset, flipH:false, flipV:false, rotation:0 });
+    selectedUid = uid;
+    redrawCanvas();
+    snapshotHistory();
+  }
+
+  function showToast(msg, isErr){
+    let el = document.getElementById('toastMsg');
+    if(!el){
+      el = document.createElement('div');
+      el.id = 'toastMsg';
+      el.style.cssText = 'position:fixed; left:50%; bottom:24px; transform:translateX(-50%); max-width:80%; padding:14px 16px; border-radius:8px; font-size:14px; line-height:20px; z-index:999; box-shadow:0 4px 12px rgba(0,0,0,.18);';
+      document.body.appendChild(el);
+    }
+    el.style.background = isErr ? '#EC0000' : '#1A1A1A';
+    el.style.color = '#FFFFFF';
+    el.textContent = msg;
+    el.style.display = 'block';
+    clearTimeout(el._t);
+    el._t = setTimeout(()=>{ el.style.display='none'; }, isErr ? 7000 : 4200);
+  }
+
+  document.getElementById('clearCanvasBtn').addEventListener('click', ()=>{
+    canvasParts=[]; selectedUid=null; redrawCanvas(); snapshotHistory();
+  });
+  document.getElementById('toggleSquaresBtn')?.addEventListener('click', (e)=>{
+    showSquares = !showSquares;
+    e.target.textContent = showSquares ? 'スクエアを隠す' : 'スクエアを表示';
+    redrawCanvas();
+  });
+  document.getElementById('eraserModeBtn').addEventListener('click', (e)=>{
+    eraserMode = !eraserMode;
+    e.target.classList.toggle('seal-btn', eraserMode);
+    e.target.textContent = eraserMode ? '消しゴムモード：ON' : '消しゴムモード';
+    if(!eraserMode) updateEraserCursor(null);
+    redrawCanvas();
+  });
+  document.getElementById('clearEraseBtn').addEventListener('click', ()=>{
+    eraseMarks = []; redrawCanvas(); snapshotHistory();
+  });
+
+  // ---------- output ----------
+  const dataOut = document.getElementById('dataOut');
+  const glyphNameInput = document.getElementById('glyphNameInput');
+  glyphNameInput?.addEventListener('input', redrawCanvas);
+
+  document.getElementById('copyBtn')?.addEventListener('click', ()=>{
+    dataOut.select();
+    navigator.clipboard.writeText(dataOut.value).catch(()=>document.execCommand('copy'));
+  });
+
+  // Builds a standalone SVG fragment (defs + transformed/masked part groups)
+  // that is byte-for-byte what the canvas currently shows — reusing the
+  // exact same rendering code as the live canvas, just targeting a
+  // detached, temporary <svg> instead of the visible one.
+  function buildCurrentCompositeSVGString(){
+    const tempSvg = document.createElementNS(NS,'svg');
+    drawGlyphBackground(tempSvg);
+    return tempSvg.innerHTML;
+  }
+
+  document.getElementById('saveAsPartBtn')?.addEventListener('click', ()=>{
+    const nm = document.getElementById('saveAsName').value.trim();
+    if(!nm){ showToast('部品名を入力してください', true); return; }
+    if(canvasParts.length === 0){ showToast('キャンバスにパーツを配置してください', true); return; }
+
+    // If the eraser was used anywhere, or a part has rotation that can't be
+    // safely baked into real coordinates (it references other parts), plain
+    // KAGE text can't faithfully represent the result — so save an exact
+    // SVG snapshot of what's actually shown instead of a lossy approximation.
+    const unbakeableRotation = canvasParts.some(p=>{
+      if(!p.rotation) return false;
+      const data = library.get(p.name);
+      return !data || hasNestedReference(data);
+    });
+    if(eraseMarks.length > 0 || unbakeableRotation){
+      const svgContent = buildCurrentCompositeSVGString();
+      library.set(nm, SNAPSHOT_PREFIX + svgContent);
+      refreshLibraryList();
+      document.getElementById('saveAsName').value='';
+      showToast(`「${nm}」を見た目そのままのSVGスナップショットとして保存しました（このツール内でそのまま再利用できます）`);
+      return;
+    }
+
+    const composed = buildComposedData(canvasParts);
+    library.set(nm, composed);
+    refreshLibraryList();
+    document.getElementById('saveAsName').value='';
+    showToast(`「${nm}」として保存しました`);
+  });
+
+  document.getElementById('manualAddBtn')?.addEventListener('click', ()=>{
+    const nm = document.getElementById('manualName').value.trim();
+    const data = document.getElementById('manualData').value.trim();
+    if(!nm || !data){ showToast('部品名とKAGEデータの両方を入力してください', true); return; }
+    library.set(nm, data);
+    refreshLibraryList();
+    document.getElementById('manualName').value='';
+    document.getElementById('manualData').value='';
+    showToast(`「${nm}」をライブラリに追加しました`);
+  });
+
+  document.getElementById('exportLibBtn')?.addEventListener('click', ()=>{
+    const obj = {};
+    let count = 0;
+    for(const [k,v] of library.entries()){
+      if(/__rot\d+$/.test(k)) continue; // internal auto-baked rotation variants — not worth exporting, regenerated on demand
+      obj[k] = v;
+      count++;
+    }
+    document.getElementById('libIoArea').value = JSON.stringify(obj);
+    showToast(`${count}件を書き出しました。下の欄のテキストを保存しておいてください`);
+  });
+
+  document.getElementById('importLibBtn')?.addEventListener('click', ()=>{
+    const text = document.getElementById('libIoArea').value.trim();
+    if(!text){ showToast('貼り付け内容が空です', true); return; }
+    let obj;
+    try{ obj = JSON.parse(text); }
+    catch(e){ showToast('JSONとして解析できませんでした: ' + e.message, true); return; }
+    let count = 0;
+    for(const [k,v] of Object.entries(obj)){
+      if(typeof v === 'string'){ library.set(k, v); count++; }
+    }
+    refreshLibraryList();
+    showToast(`${count}件を読み込みました`);
+  });
+
+  const fetchStatus = document.getElementById('fetchStatus');
+
+  // ---------- GlyphWiki との通信(kage-editor と同じ API を使う) ----------
+  // GlyphWiki の API は他のサイトからの読み込みを許可していないため、kage-editor と同じく、
+  // 許可のヘッダーを付けてくれる中継サーバー(kage-editor の作者が公開しているもの)を経由する。
+  const GW_API = 'https://asia-northeast1-ku6goma.cloudfunctions.net/gwproxy';
+  const GW_IMAGE = (name) => `https://glyphwiki.org/glyph/${encodeURIComponent(name)}.svg`;
+  class NetworkError extends Error {}
+  async function gwCall(path){
+    let res;
+    try{ res = await fetch(GW_API + path); }
+    catch(e){ throw new NetworkError('GlyphWiki に接続できませんでした'); }
+    if(!res.ok) throw new NetworkError('GlyphWiki からの応答がありませんでした(' + res.status + ')');
+    return new URLSearchParams(await res.text());
+  }
+  async function gwGetSource(name){
+    const data = (await gwCall('/get_source.cgi?name=' + encodeURIComponent(name))).get('data');
+    return data ? data : null;
+  }
+  async function gwSearch(query){
+    const data = (await gwCall('/search4ge.cgi?query=' + encodeURIComponent(query))).get('data') || '';
+    if(data === 'tooshort') return { tooShort: true, names: [] };
+    if(data === 'nodata' || !data) return { tooShort: false, names: [] };
+    return { tooShort: false, names: data.split('\t').filter(Boolean) };
+  }
+
+  // 部品を、それが参照しているほかの部品もたどって、まとめてパーツ棚に取り込む
+  async function autoImport(root){
+    const pending = [root];
+    const seen = new Set();
+    let fetched = 0;
+    while(pending.length){
+      const batch = pending.splice(0, 8).filter(n => !library.has(n) && !seen.has(n));
+      batch.forEach(n => seen.add(n));
+      const results = await Promise.all(batch.map(n => gwGetSource(n).then(d => [n, d])));
+      for(const [n, d] of results){
+        if(d == null) throw new Error(`「${n}」は GlyphWiki に見つかりませんでした`);
+        library.set(n, d);
+        fetched++;
+        extractReferencedNames(d).forEach(r => { if(!library.has(r) && !seen.has(r)) pending.push(r); });
+      }
+      if(fetched > 400) throw new Error('参照している部品が多すぎるため、取り込みを中断しました');
+    }
+    refreshLibraryList();
+    redrawCanvas();
+    return fetched;
+  }
+
+  async function importByName(name, placeOnCanvas){
+    if(library.has(name)){
+      if(placeOnCanvas){ addPartToCanvas(name); showToast(`「${name}」を組み立て台に置きました`); }
+      else { fetchStatus.className='status-line ok'; fetchStatus.textContent = `${name} は取り込み済みです`; }
+      return;
+    }
+    fetchStatus.className = 'status-line';
+    fetchStatus.textContent = `${name} を取り込んでいます…`;
+    try{
+      await autoImport(name);
+      fetchStatus.className = 'status-line ok';
+      fetchStatus.textContent = `${name} を取り込みました`;
+      if(placeOnCanvas){ addPartToCanvas(name); showToast(`「${name}」を組み立て台に置きました`); }
+    }catch(e){
+      fetchStatus.className = 'status-line err';
+      fetchStatus.textContent = e instanceof NetworkError ? e.message + '。インターネットにつながっているか確認してください。' : e.message;
+    }
+  }
+
+  document.getElementById('askBtn').addEventListener('click', ()=>{
+    const name = toGlyphName(document.getElementById('searchInput').value);
+    if(name) importByName(name, true);
+  });
+
+  // 部品を検索して、候補を一覧で出す(押すと取り込んで組み立て台に置く)
+  const gwResultsEl = document.getElementById('gwResults');
+  const GW_PAGE = 60;
+  function showGwResults(names, shown){
+    gwResultsEl.innerHTML = '';
+    names.slice(0, shown).forEach(name => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'gw-result';
+      b.title = name + '(押すと取り込んで組み立て台に置きます)';
+      const img = document.createElement('img');
+      img.loading = 'lazy';
+      img.alt = name;
+      img.src = GW_IMAGE(name);
+      const label = document.createElement('span');
+      label.textContent = name;
+      b.appendChild(img); b.appendChild(label);
+      b.addEventListener('click', () => importByName(name, true));
+      gwResultsEl.appendChild(b);
+    });
+    if(names.length > shown){
+      const more = document.createElement('button');
+      more.type = 'button';
+      more.className = 'secondary gw-more';
+      more.textContent = `さらに表示(残り ${names.length - shown} 件)`;
+      more.addEventListener('click', () => showGwResults(names, shown + GW_PAGE));
+      gwResultsEl.appendChild(more);
+    }
+  }
+  document.getElementById('gwSearchBtn').addEventListener('click', async ()=>{
+    const q = document.getElementById('searchInput').value.trim();
+    if(!q) return;
+    gwResultsEl.innerHTML = '';
+    fetchStatus.className = 'status-line';
+    fetchStatus.textContent = `「${q}」を含む部品を検索しています…`;
+    try{
+      const r = await gwSearch(q);
+      if(r.tooShort){ fetchStatus.className='status-line err'; fetchStatus.textContent = '検索語が短すぎます。もう少し長くしてください。'; return; }
+      if(!r.names.length){ fetchStatus.className='status-line err'; fetchStatus.textContent = `「${q}」に当てはまる部品は見つかりませんでした。`; return; }
+      fetchStatus.className = 'status-line ok';
+      fetchStatus.textContent = `${r.names.length} 件見つかりました。使いたい部品を押すと、取り込んで組み立て台に置きます。`;
+      showGwResults(r.names, GW_PAGE);
+    }catch(e){
+      fetchStatus.className = 'status-line err';
+      fetchStatus.textContent = e.message + '。インターネットにつながっているか確認してください。';
+    }
+  });
+  document.getElementById('searchInput').addEventListener('keydown', e=>{ if(e.key==='Enter') document.getElementById('gwSearchBtn').click(); });
+
+  // ---------- 部首・部品のパレット ----------
+  // 押すと、その部首・部品で GlyphWiki の部品を検索する
+  const RADICALS = (window.IDSRadicals && window.IDSRadicals.RADICALS) || [];
+  let radicalTab = 0;
+  function buildRadicalPalette(){
+    const tabs = document.getElementById('radicalTabs');
+    const pal = document.getElementById('radicalPalette');
+    tabs.innerHTML = ''; pal.innerHTML = '';
+    if(!RADICALS.length){
+      pal.innerHTML = '<p class="hint" style="margin:0;">部首のデータ(js/ids_radicals.js)を読み込めませんでした。</p>';
+      return;
+    }
+    RADICALS.forEach((g, i) => {
+      const t = document.createElement('button');
+      t.type = 'button';
+      t.setAttribute('role', 'tab');
+      t.setAttribute('aria-selected', i === radicalTab ? 'true' : 'false');
+      t.textContent = g.label;
+      t.addEventListener('click', () => { radicalTab = i; buildRadicalPalette(); });
+      tabs.appendChild(t);
+    });
+    const g = RADICALS[radicalTab];
+    [['部首', g.kangxi, ''], ['部首の変形', g.variants, 'is-variant'], ['部品', g.parts, '']].forEach(([label, chars, cls]) => {
+      const list = Array.from(chars || '');
+      if(!list.length) return;
+      const lab = document.createElement('div');
+      lab.className = 'radical-label';
+      lab.textContent = label;
+      pal.appendChild(lab);
+      const keys = document.createElement('div');
+      keys.className = 'radical-keys';
+      list.forEach(ch => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        if(cls) b.className = cls;
+        b.textContent = ch;
+        b.title = '「' + ch + '」で部品を検索';
+        b.addEventListener('click', () => {
+          document.getElementById('searchInput').value = ch;
+          document.getElementById('gwSearchBtn').click();
+        });
+        keys.appendChild(b);
+      });
+      pal.appendChild(keys);
+    });
+  }
+  buildRadicalPalette();
+
+  // ---------- keyboard shortcuts ----------
+  // Only take over these keys when focus is on the canvas workspace, not
+  // while typing in a text field (so normal text editing still works there).
+  window.addEventListener('keydown', (e)=>{
+    const tag = (document.activeElement && document.activeElement.tagName) || '';
+    const inTextField = tag === 'INPUT' || tag === 'TEXTAREA';
+    if(inTextField) return;
+
+    if((e.key === 'Backspace' || e.key === 'Delete') && !e.ctrlKey && !e.metaKey){
+      const p = canvasParts.find(x=>x.uid===selectedUid);
+      if(!p) return;
+      e.preventDefault();
+      canvasParts = canvasParts.filter(x=>x.uid!==p.uid);
+      eraseMarks = eraseMarks.filter(m=>m.partUid!==p.uid);
+      selectedUid = null;
+      redrawCanvas();
+      snapshotHistory();
+      showToast(`「${p.name}」を削除しました`);
+      return;
+    }
+
+    const mod = e.ctrlKey || e.metaKey;
+    if(!mod) return;
+    const key = e.key.toLowerCase();
+    if(key === 'c'){
+      const p = canvasParts.find(x=>x.uid===selectedUid);
+      if(!p) return;
+      clipboardPart = { name:p.name, x1:p.x1, y1:p.y1, x2:p.x2, y2:p.y2, flipH:p.flipH, flipV:p.flipV, rotation:p.rotation };
+      e.preventDefault();
+      showToast(`「${p.name}」をコピーしました`);
+    } else if(key === 'v'){
+      if(!clipboardPart) return;
+      e.preventDefault();
+      const w = clipboardPart.x2 - clipboardPart.x1, h = clipboardPart.y2 - clipboardPart.y1;
+      const uid = uidCounter++;
+      const nx1 = clamp(clipboardPart.x1 + 8), ny1 = clamp(clipboardPart.y1 + 8);
+      canvasParts.push({ uid, name:clipboardPart.name, x1:nx1, y1:ny1, x2:clamp(nx1+w), y2:clamp(ny1+h), flipH:clipboardPart.flipH, flipV:clipboardPart.flipV, rotation:clipboardPart.rotation||0 });
+      selectedUid = uid;
+      redrawCanvas();
+      snapshotHistory();
+      showToast(`「${clipboardPart.name}」を貼り付けました`);
+    } else if(key === 'z'){
+      e.preventDefault();
+      if(e.shiftKey) redoHistory(); else undoHistory();
+    } else if(key === 'y'){
+      e.preventDefault();
+      redoHistory();
+    }
+  });
+
+  // ---------- 選択の解除とキー操作の受け取り ----------
+  // 組み立て台や部品表の外を押したら、どの部品も選んでいない状態にする。
+  // また、組み立て台を押したときは、入力欄に残っているカーソルを外し、このページでキー操作
+  // (Delete・Ctrl+C・Ctrl+V など)を受け取れるようにする(エディタの中で開き直したときも同じ)。
+  document.addEventListener('pointerdown', (e)=>{
+    // 漢文エディタの中で開いているときは、押されたことを知らせて、このウィンドウを手前に出してもらう
+    if(window.parent && window.parent !== window) window.parent.postMessage({ type: 'kanji-composer-activate' }, '*');
+    const t = e.target;
+    const onCanvas = t.closest && t.closest('.canvas-wrap');
+    if(onCanvas){
+      const a = document.activeElement;
+      if(a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA')) a.blur();
+      window.focus();
+    }
+    if(eraserMode || selectedUid === null) return;
+    if(t.closest && t.closest('.part-rect, .resize-handle, .rotate-handle, #partTable, #strokeEditorPanel')) return;
+    selectedUid = null;
+    redrawCanvas();
+  }, true);
+
+  // ---------- 漢文エディタとの連携 ----------
+  // 漢文エディタの中(iframe)で開かれたときだけ、組み立てた字をエディタに送るボタンを出す
+  const insideEditor = window.parent && window.parent !== window;
+  if(insideEditor){
+    document.getElementById('sendToEditorBox').style.display = '';
+    document.getElementById('sendToEditorBtn').addEventListener('click', ()=>{
+      if(canvasParts.length === 0){ showToast('組み立て台に部品を配置してください', true); return; }
+      const inner = buildCurrentCompositeSVGString();
+      if(!/<(path|polygon)\b/.test(inner)){ showToast('字形を描けていません(部品の取り込みが済んでいない可能性があります)', true); return; }
+      // 余白ガイドの枠が、エディタの1文字分の大きさになるように切り出す(組み立て台の外枠いっぱいではなく)
+      const size = 200 - GUIDE_INSET * 2;
+      const svgText = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="' + GUIDE_INSET + ' ' + GUIDE_INSET + ' ' + size + ' ' + size + '">' + inner + '</svg>';
+      window.parent.postMessage({ type: 'kanji-composer-insert', svg: svgText, name: '組み立てた字' }, '*');
+      showToast('交利に入れました');
+    });
+  }
+
+  // ---------- init ----------
+  refreshLibraryList();
+  redrawCanvas();
+  tryLoadEngine();
+})();
+</script>
+</body>
+</html>

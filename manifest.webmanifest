@@ -1,0 +1,28 @@
+{
+  "name": "漢文エディタ 交利",
+  "short_name": "交利",
+  "description": "縦書きで漢文を書くための、ブラウザで動くエディタ。振り仮名・送り仮名・訓点・上下記号・熟字訓を付けられ、CJK統合漢字拡張の漢字の検索や、部品からの字の組み立てもできます。",
+  "lang": "ja",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#FFFFFF",
+  "theme_color": "#0017C1",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

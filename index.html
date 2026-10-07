@@ -1,0 +1,3364 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>漢文エディタ 交利</title>
+<meta name="description" content="縦書きで漢文を書くための、ブラウザで動くエディタ。振り仮名・送り仮名・訓点・上下記号・熟字訓を付けられ、CJK統合漢字拡張の漢字の検索や、部品からの字の組み立てもできます。">
+<meta name="theme-color" content="#0017C1">
+<meta name="color-scheme" content="light">
+<link rel="icon" href="icons/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="icons/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<!-- SNS などでリンクを共有したときの表示 -->
+<meta property="og:type" content="website">
+<meta property="og:title" content="漢文エディタ 交利">
+<meta property="og:description" content="縦書きで漢文を書くための、ブラウザで動くエディタ。振り仮名・送り仮名・訓点・上下記号・熟字訓を付けられ、CJK統合漢字拡張の漢字の検索や、部品からの字の組み立てもできます。">
+<meta property="og:locale" content="ja_JP">
+<meta name="twitter:card" content="summary">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  /* 字雲(Jigmo, CC0)を、端末に入っていない漢字の受け皿として使う。
+     サイトの fonts/ フォルダに置いたフォントを、その範囲の字が画面に出たときだけ読み込む。
+     3ファイルを別の書体名にしてあるので、ファイルごとの正確な収録範囲が分からなくても、
+     足りない字は次のファイルへ順に回る(読み込み済みでなければ、必要になった時点で読み込む)。 */
+  @font-face{
+    font-family: "Jigmo"; font-display: swap;
+    src: url("fonts/Jigmo.ttf") format("truetype");
+    unicode-range: U+2E80-2FFF, U+3005-3007, U+31C0-31EF, U+3400-4DBF, U+4E00-9FFF, U+F900-FAFF;
+  }
+  @font-face{
+    font-family: "Jigmo2"; font-display: swap;
+    src: url("fonts/Jigmo2.ttf") format("truetype");
+    unicode-range: U+20000-2FFFF;
+  }
+  @font-face{
+    font-family: "Jigmo3"; font-display: swap;
+    src: url("fonts/Jigmo3.ttf") format("truetype");
+    unicode-range: U+20000-3FFFF;
+  }
+  :root{
+    --font-size: 20px;
+    --margin: 40px;
+    --ink: #2b2a28;
+    --paper: #faf7f0;
+    --paper-line: #e4dfd2;
+
+    /* デジタル庁デザインシステム(DADS)に準拠した画面の配色 */
+    --dads-primary: #0017c1;
+    --dads-primary-hover: #00118f;
+    --dads-ink: #333333;
+    --dads-ink-strong: #1a1a1a;
+    --dads-muted: #666666;
+    --dads-muted-alt: #767676;
+    --dads-hairline: #949494;
+    --dads-canvas: #ffffff;
+    --dads-surface: #f2f2f2;
+    --dads-surface-alt: #e6e6e6;
+    --dads-tint-blue: #e8f1fe;
+    --dads-tint-blue-selected: #d9e6ff;
+    --dads-font: "Noto Sans JP","Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif;
+    /* 本文・注釈・漢字検索で使う書体。端末の明朝体に無い字は字雲で表示する */
+    --kanji-font: "Hiragino Mincho ProN","Yu Mincho","MS PMincho","Jigmo","Jigmo2","Jigmo3",serif;
+  }
+  *{ box-sizing: border-box; }
+  html, body{
+    margin:0; padding:0; height:100%; overflow:hidden;
+    background: var(--dads-surface);
+    font-family: var(--dads-font);
+    color: var(--dads-ink);
+  }
+
+  .toolbar{
+    position: sticky; top:0; z-index: 20;
+    background: var(--dads-canvas);
+    color: var(--dads-ink);
+    padding: 12px 22px;
+    display:flex; align-items:center; gap:24px;
+    flex-wrap: wrap;
+    border-bottom: 1px solid var(--dads-hairline);
+  }
+  .brand{
+    font-family: "Hiragino Mincho ProN","Yu Mincho",serif;
+    font-size: 19px;
+    font-weight: 700;
+    color: var(--dads-ink);
+    letter-spacing: .04em;
+    white-space: nowrap;
+  }
+  .control{ display:flex; flex-direction:column; gap:4px; min-width: 128px; }
+  .control .row{ display:flex; align-items:center; gap:8px; }
+  .control label{ font-size: 12px; color: var(--dads-muted); letter-spacing:.02em; }
+  .control input[type=range]{ width: 110px; accent-color: var(--dads-primary); }
+  .control .val{ font-size: 12px; color:var(--dads-ink); min-width: 34px; text-align:right; font-variant-numeric: tabular-nums; }
+  .spacer{ flex: 1; }
+  .stats{ display:flex; gap:18px; font-size:12px; color:var(--dads-muted); white-space:nowrap; }
+  .stats b{ color:var(--dads-ink); font-weight:700; }
+  .btn{
+    background: var(--dads-canvas); border: 1px solid var(--dads-primary); color:var(--dads-primary);
+    padding:8px 16px; font-size:13px; font-weight:700; border-radius:8px; cursor:pointer; letter-spacing:.02em;
+    font-family: var(--dads-font);
+  }
+  .btn:hover{ background: var(--dads-tint-blue); }
+
+  body{ display:flex; flex-direction:column; }
+  .toolbar{ flex:none; }
+  .app-body{
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    align-items: stretch;
+  }
+  .sidebar{
+    flex: none;
+    width: 220px;
+    overflow-y: auto;
+    background: var(--dads-canvas);
+    border-right: 1px solid var(--dads-hairline);
+    padding: 20px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    box-sizing: border-box;
+  }
+  .sidebar .control input[type=range]{ width: 100%; }
+  .sidebar .val{ color: var(--dads-ink); }
+  .sidebar .control label{ color: var(--dads-muted); }
+  /* 左の欄の項目:名前だけを出しておき、押すと中身が開く */
+  .side-section{ border-bottom: 1px solid var(--dads-hairline); }
+  .side-section > summary{
+    list-style: none; cursor: pointer; user-select: none;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 4px; font-size: 14px; font-weight: 700; color: var(--dads-ink-strong);
+  }
+  .side-section > summary::-webkit-details-marker{ display: none; }
+  .side-section > summary::after{
+    content: ""; width: 8px; height: 8px; margin-right: 4px;
+    border-right: 2px solid var(--dads-ink); border-bottom: 2px solid var(--dads-ink);
+    transform: rotate(45deg); transition: transform .15s;
+  }
+  .side-section[open] > summary::after{ transform: rotate(-135deg); }
+  .side-section > summary:hover{ background: var(--dads-tint-blue); color: var(--dads-primary); }
+  .side-section > summary:focus-visible{ outline: 2px solid var(--dads-primary); outline-offset: -2px; }
+  .side-body{ display: flex; flex-direction: column; gap: 16px; padding: 4px 4px 18px; }
+  .side-brand{ padding: 4px 4px 12px; font-size: 14px; font-weight: 700; color: var(--dads-muted); letter-spacing: .04em; }
+  .side-brand-name{ font-family: "Hiragino Mincho ProN","Yu Mincho",var(--kanji-font); font-size: 24px; color: var(--dads-ink-strong); letter-spacing: .12em; margin-left: 4px; }
+  .side-top{ padding: 4px 0 12px; }
+  /* 画面のいちばん下のクレジット */
+  .site-footer{
+    flex: none; display: flex; flex-wrap: wrap; gap: 2px 16px; align-items: center;
+    padding: 6px 16px; border-top: 1px solid var(--dads-hairline); background: var(--dads-canvas);
+    font-size: 11px; line-height: 1.6; color: var(--dads-muted);
+  }
+  .site-footer a{ color: var(--dads-primary); }
+  .side-top .btn{ width: 100%; justify-content: center; }
+  .side-fixed{ display: flex; flex-direction: column; gap: 10px; padding: 12px 4px 16px; border-top: 1px solid var(--dads-hairline); border-bottom: 1px solid var(--dads-hairline); }
+  .side-buttons{ display: flex; flex-direction: column; gap: 8px; }
+  .side-buttons .btn{ width: 100%; justify-content: center; }
+  .side-note{ margin: 0; font-size: 12px; line-height: 1.7; color: var(--dads-muted); }
+  .sidebar-heading{
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--dads-muted);
+    border-top: 1px solid var(--dads-hairline);
+    padding-top: 14px;
+    margin-top: -4px;
+    letter-spacing: .03em;
+  }
+  .anno-slider-group{
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 4px;
+  }
+  .anno-slider-group .group-label{ font-size: 12px; color: var(--dads-ink); font-weight:700; }
+  .anno-slider-row{ display:flex; align-items:center; gap:6px; }
+  .anno-slider-row label{ font-size: 11px; color:var(--dads-muted); width: 14px; flex-shrink:0; }
+  .anno-slider-row input[type=range]{ flex:1; }
+  .anno-slider-row .val{ font-size: 11px; color: var(--dads-muted); width: 34px; text-align:right; flex-shrink:0; }
+  .text-input{
+    width: 100%;
+    box-sizing: border-box;
+    font-size: 13px;
+    padding: 6px 10px;
+    border: 1px solid var(--dads-muted);
+    border-radius: 8px;
+    font-family: var(--kanji-font);
+    color: var(--dads-ink);
+  }
+  .num-input{
+    width: 100%;
+    box-sizing: border-box;
+    font-size: 13px;
+    padding: 6px 10px;
+    border: 1px solid var(--dads-muted);
+    border-radius: 8px;
+    font-family: var(--dads-font);
+    color: var(--dads-ink);
+  }
+  .text-input:focus, .num-input:focus{
+    outline: 2px solid var(--dads-primary);
+    outline-offset: 1px;
+  }
+  .anno-slider-row input[type=number]{
+    flex: 1;
+    width: 0;
+    min-width: 0;
+    box-sizing: border-box;
+    font-size: 12px;
+    padding: 4px 6px;
+    border: 1px solid var(--dads-muted);
+    border-radius: 8px;
+    color: var(--dads-ink);
+    font-family: var(--dads-font);
+  }
+  .anno-slider-row input[type=number]:focus{
+    outline: 2px solid var(--dads-primary);
+    outline-offset: 1px;
+  }
+  .sidebar .btn{
+    color: var(--dads-primary);
+    border-color: var(--dads-primary);
+    background: var(--dads-canvas);
+  }
+  a.btn{ display:inline-flex; align-items:center; text-decoration:none; }
+  .jitai-buttons{ display:flex; flex-direction:column; gap:8px; }
+  .jitai-buttons .btn{ width:100%; }
+  .jitai-status{ margin:0; font-size:12px; line-height:1.6; color: var(--dads-muted); min-height:1em; }
+  .sidebar .btn:hover{ background: var(--dads-tint-blue); }
+
+  .context-menu{
+    position: fixed;
+    display: none;
+    background: var(--dads-canvas);
+    border: 1px solid var(--dads-hairline);
+    border-radius: 8px;
+    padding: 4px;
+    z-index: 80;
+    min-width: 160px;
+    font-family: var(--dads-font);
+  }
+  .context-menu-item{
+    display:flex; align-items:center; justify-content:space-between; gap:20px;
+    padding: 8px 12px;
+    font-size: 13px;
+    color: var(--dads-ink);
+    cursor: pointer;
+    border-radius: 8px;
+    white-space: nowrap;
+  }
+  .context-menu-item:hover{ background: var(--dads-tint-blue); color: var(--dads-primary); }
+  .context-menu-shortcut{ font-size: 11px; color: var(--dads-muted-alt); }
+  .context-menu-sep{ height:1px; background:var(--dads-surface-alt); margin:4px 2px; }
+
+  /* ページを表示する部分。ここだけがスクロールし、倍率を変えても左の欄には重ならない */
+  .workspace-scroll{
+    flex: 1;
+    min-width: 0;
+    overflow: auto;
+    background: var(--dads-surface);
+    touch-action: pan-x pan-y;   /* 2本指の拡大縮小はブラウザではなくエディタが受け取る */
+    overscroll-behavior: contain;
+  }
+  /* 拡大縮小した後の大きさを持つ台。これがあるので、拡大してもスクロールで端まで見られる */
+  .zoom-stage{ position: relative; margin: 0 auto; }
+  .workspace{
+    position: absolute; top: 0; left: 0;
+    width: max-content;
+    transform-origin: 0 0;
+    display:flex; flex-direction:column; align-items:center; gap: 34px;
+    padding: 40px 20px 140px;
+  }
+
+  .page{
+    position: relative;
+    background: var(--paper);
+    padding: var(--margin);
+    box-shadow: 0 0 0 1px var(--paper-line), 0 8px 20px rgba(26,26,26,.10);
+    flex: none;
+  }
+  .page::before{
+    content:"";
+    position:absolute; inset: var(--margin);
+    border: 1px solid var(--paper-line);
+    pointer-events:none;
+  }
+
+  .page-content{
+    position:relative;
+    width:100%; height:100%;
+    overflow:visible;
+    writing-mode: vertical-rl;
+    cursor: text;
+  }
+
+  .cell{
+    position:absolute;
+    display:flex; align-items:center; justify-content:center;
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    font-family: var(--kanji-font);
+    font-size: var(--font-size);
+    line-height: 1;
+    color: var(--ink);
+    user-select: none;
+  }
+  .cell .sub{
+    position:absolute;
+    left:0; right:0;
+    top: 100%;
+    margin-top: 1px;
+    font-size: 0.5em;
+    line-height: 1;
+    text-align:center;
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    pointer-events:none;
+  }
+
+  .caret-bar{
+    position: fixed;
+    height: 2px;
+    background: var(--dads-primary);
+    pointer-events:none;
+    animation: blink 1s step-end infinite;
+  }
+  @keyframes blink{ 50%{ opacity:0; } }
+
+  .hidden-input{
+    position: fixed;
+    opacity: 0;
+    pointer-events: none;
+    border:none; outline:none; resize:none; padding:0; margin:0;
+    overflow:hidden; white-space:pre;
+    z-index: 5;
+  }
+
+  .cell.eol-mark{ pointer-events: none; }
+  .cell.is-kanji{
+    font-weight: 400; /* 明朝体は太字フォントの実体を持たないため、太さは下のストローク幅で連続的に表現する */
+    -webkit-text-stroke: var(--kanji-stroke, 0.5px) currentColor;
+    text-stroke: var(--kanji-stroke, 0.5px) currentColor;
+  }
+  .cell.cell-selected{ background: var(--dads-tint-blue-selected); }
+  .anno{
+    position:absolute;
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    font-size: calc(1em * var(--anno-scale, 0.42));
+    font-weight: 400; /* 漢字の太さ(text-stroke)を継承しないよう、常に独立した通常の太さにする */
+    -webkit-text-stroke: 0 currentColor;
+    text-stroke: 0 currentColor;
+    line-height: 1;
+    color: var(--ink);
+    pointer-events:none;
+    white-space:nowrap;
+    text-align:center;
+  }
+  .anno-normal-size{ font-size: 1em; }
+
+  .anno-panel{
+    position: fixed;
+    background: var(--dads-canvas);
+    border: 1px solid var(--dads-hairline);
+    border-radius: 8px;
+    padding: 6px;
+    z-index: 60;
+    font-family: var(--dads-font);
+  }
+  .anno-row{
+    display:flex; align-items:center; gap:6px;
+    padding: 3px 4px;
+    border-bottom: 1px solid var(--dads-surface-alt);
+  }
+  .anno-row:last-child{ border-bottom:none; }
+  .anno-note{ max-width: 230px; margin: 2px 0 6px; font-size: 11px; line-height: 1.6; color: var(--dads-muted); }
+  .anno-input:disabled{ background: var(--dads-surface); color: var(--dads-muted-alt); cursor: not-allowed; }
+  .anno-label{
+    width: 82px; font-size: 12px; color:var(--dads-muted); flex-shrink:0;
+  }
+  .anno-input-wrap{ display:flex; align-items:center; gap:4px; }
+  .anno-input{
+    width: 92px; font-size: 13px; padding: 4px 8px;
+    border: 1px solid var(--dads-muted); border-radius: 8px;
+    font-family: var(--kanji-font);
+    color: var(--dads-ink);
+  }
+  .anno-input:focus{ outline: 2px solid var(--dads-primary); outline-offset:1px; }
+  .anno-repeat-btn{
+    width:26px; height:26px; border:1px solid var(--dads-muted); border-radius:8px;
+    background:var(--dads-canvas); cursor:pointer; font-size:14px; color:var(--dads-primary);
+  }
+  .anno-repeat-btn:hover{ background:var(--dads-tint-blue); }
+
+  .kunten-picker{
+    position: fixed;
+    background: var(--dads-canvas);
+    border: 1px solid var(--dads-hairline);
+    border-radius: 8px;
+    padding: 20px 6px 6px 6px;
+    z-index: 70;
+  }
+  .picker-grid{
+    display:grid;
+    grid-template-columns: repeat(5, 28px);
+    gap: 4px;
+  }
+  .kunten-picker button{
+    width:28px; height:28px; border:none; border-radius:8px;
+    background: var(--dads-primary); color:#fff;
+    font-family: var(--kanji-font);
+    cursor:pointer; font-size:13px;
+  }
+  .kunten-picker button:hover{ background: var(--dads-primary-hover); }
+  .picker-close{
+    position:absolute; top:3px; right:3px;
+    width:18px !important; height:18px !important;
+    background:transparent !important;
+    color:var(--dads-muted-alt) !important;
+    font-size:14px !important;
+    line-height:1 !important;
+    padding:0 !important;
+  }
+  .picker-close:hover{ color:var(--dads-ink) !important; background:var(--dads-surface) !important; }
+
+  .page-number{
+    position:absolute; bottom: 6px; left:50%; transform: translateX(-50%);
+    min-width: 120px; min-height: 18px; padding: 2px 8px; border-radius: 4px;
+    text-align:center; cursor: pointer;
+    font-family: var(--dads-font);
+    font-size: 11px; line-height: 14px; color:#a39a86; letter-spacing:.05em;
+  }
+  .page-number:hover{ background: rgba(0,23,193,.06); color: var(--dads-primary); }
+  .page-number.is-empty:hover::after{ content: "ページ番号を付ける"; color: var(--dads-primary); }
+
+
+  /* 印刷:エディタで見えている本文だけを、そのままの体裁で出す。
+     このブロックはスタイルシートの一番最後に置き、!important も付けて、
+     後から来る通常表示用のルールに上書きされないようにしている。 */
+  /* ---------- 漢字検索ウィンドウ ---------- */
+  .ids-window{
+    position: fixed;
+    z-index: 55;
+    display: flex; flex-direction: column;
+    background: var(--dads-canvas);
+    border: 1px solid var(--dads-hairline);
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(26,26,26,.18);
+    font-family: var(--dads-font);
+    color: var(--dads-ink);
+    overflow: hidden;
+  }
+  .ids-window[hidden]{ display: none; }
+  .ids-titlebar{
+    flex: none;
+    display: flex; align-items: center; justify-content: space-between;
+    height: 40px; padding: 0 6px 0 14px;
+    background: var(--dads-surface);
+    border-bottom: 1px solid var(--dads-hairline);
+    cursor: move;
+    user-select: none;
+    touch-action: none;
+  }
+  .ids-title{ font-size: 14px; font-weight: 700; color: var(--dads-ink); }
+  .ids-close{
+    width: 32px; height: 32px; border: none; border-radius: 8px;
+    background: transparent; color: var(--dads-ink); font-size: 20px; line-height: 1; cursor: pointer;
+  }
+  .ids-close:hover{ background: var(--dads-surface-alt); }
+  .ids-close:focus-visible, .ids-window button:focus-visible, .ids-query:focus{
+    outline: 2px solid var(--dads-primary); outline-offset: 1px;
+  }
+  .ids-body{
+    flex: 1; min-height: 0;
+    display: flex; flex-direction: column; gap: 10px;
+    padding: 12px 14px 14px;
+  }
+  .ids-query-row{ flex: none; display: flex; gap: 8px; }
+  .ids-query-row .btn{ padding: 6px 10px; font-size: 12px; white-space: nowrap; }
+  .ids-query{
+    flex: 1; min-width: 0;
+    font-family: var(--kanji-font); font-size: 18px;
+    padding: 6px 10px;
+    border: 1px solid var(--dads-muted); border-radius: 8px;
+    color: var(--dads-ink);
+  }
+  .ids-key{
+    min-width: 32px; height: 32px; padding: 0 4px;
+    border: 1px solid var(--dads-hairline); border-radius: 6px;
+    background: var(--dads-canvas); color: var(--dads-ink);
+    font-family: var(--kanji-font); font-size: 18px; line-height: 1;
+    cursor: pointer;
+  }
+  .ids-key:hover{ background: var(--dads-tint-blue); border-color: var(--dads-primary); }
+  .ids-key.is-variant{ border-style: dashed; }
+  .ids-tabs{ flex: none; display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid var(--dads-hairline); }
+  .ids-tab{
+    padding: 5px 8px; border: none; border-bottom: 3px solid transparent;
+    background: transparent; color: var(--dads-muted);
+    font-family: var(--dads-font); font-size: 12px; cursor: pointer;
+  }
+  .ids-tab[aria-selected="true"]{ color: var(--dads-primary); border-bottom-color: var(--dads-primary); font-weight: 700; }
+  .ids-palette{ flex: 1 1 45%; min-height: 60px; overflow-y: auto; }
+  .ids-group-label{ font-size: 11px; color: var(--dads-muted); margin: 6px 0 4px; }
+  .ids-group-label:first-child{ margin-top: 0; }
+  .ids-keys{ display: flex; flex-wrap: wrap; gap: 4px; }
+  .ids-results{
+    flex: 1 1 55%; min-height: 60px; overflow-y: auto;
+    border-top: 1px solid var(--dads-hairline); padding-top: 8px;
+  }
+  .ids-message{ font-size: 13px; line-height: 1.7; color: var(--dads-muted); margin: 0; }
+  .ids-result-key{ min-width: 40px; height: 40px; font-size: 24px; }
+  .ids-rz{ position: absolute; z-index: 2; touch-action: none; }
+  .cell img.gaiji{ display: block; width: 1em; height: 1em; pointer-events: none; }
+  .composer-window{ z-index: 56; }
+  .composer-frame{ flex: 1; min-height: 0; width: 100%; border: none; background: var(--dads-canvas); }
+  .ids-rz[data-dir="n"]{ top: 0; left: 8px; right: 8px; height: 6px; cursor: ns-resize; }
+  .ids-rz[data-dir="s"]{ bottom: 0; left: 8px; right: 8px; height: 6px; cursor: ns-resize; }
+  .ids-rz[data-dir="e"]{ right: 0; top: 8px; bottom: 8px; width: 6px; cursor: ew-resize; }
+  .ids-rz[data-dir="w"]{ left: 0; top: 8px; bottom: 8px; width: 6px; cursor: ew-resize; }
+  .ids-rz[data-dir="ne"]{ top: 0; right: 0; width: 12px; height: 12px; cursor: nesw-resize; }
+  .ids-rz[data-dir="sw"]{ bottom: 0; left: 0; width: 12px; height: 12px; cursor: nesw-resize; }
+  .ids-rz[data-dir="nw"]{ top: 0; left: 0; width: 12px; height: 12px; cursor: nwse-resize; }
+  .ids-rz[data-dir="se"]{ bottom: 0; right: 0; width: 12px; height: 12px; cursor: nwse-resize; }
+
+  @media print{
+    @page{ size: 297mm 210mm; margin: 0; }
+    body{ background:#fff !important; }
+    .toolbar, .sidebar, .caret-bar, .hidden-input,
+    .anno-panel, .kunten-picker, .context-menu, .ids-window, .composer-window, .help-window, .site-footer{ display:none !important; }
+    html, body{ height:auto !important; overflow:visible !important; display:block !important; }
+    .app-body{ display:block !important; }
+    .workspace-scroll{ overflow:visible !important; }
+    .zoom-stage{ width:auto !important; height:auto !important; }
+    .workspace{
+      position:static !important;
+      width:auto !important;
+      background:none !important;
+      padding:0 !important;
+      gap:0 !important;
+      min-height:0 !important;
+      transform:none !important;
+    }
+    .page{
+      box-shadow:none !important;
+      margin:0 !important;
+      page-break-after: always !important;
+      break-after: page !important;
+      page-break-inside: avoid !important;
+    }
+    .page:last-child{ page-break-after: auto !important; break-after: auto !important; }
+    .page::before{ display:none !important; }
+    .page-number{ color:#999 !important; }
+  }
+</style>
+</head>
+<body>
+<noscript><p style="margin:0;padding:12px 16px;background:#fff3cd;font-family:sans-serif;">交利を使うには、ブラウザの JavaScript を有効にしてください。</p></noscript>
+
+  <div class="app-body">
+    <div class="sidebar">
+      <!-- いちばん上:名前と使い方。その下:表示倍率と文字数・ページ数(どちらも常に表示) -->
+      <div class="side-brand">漢文エディタ <span class="side-brand-name">交利</span></div>
+      <div class="side-top">
+        <button class="btn" id="btn-help" aria-controls="help-window" aria-expanded="false">使い方</button>
+      </div>
+      <div class="side-fixed">
+        <div class="control">
+          <div class="row"><label style="flex:1" for="ctl-zoom">表示倍率</label><span class="val" id="val-zoom">100%</span></div>
+          <input type="range" id="ctl-zoom" min="25" max="400" step="5" value="100">
+        </div>
+        <div class="stats">
+          <div>文字数 <b id="stat-chars">0</b></div>
+          <div>ページ <b id="stat-pages">1</b></div>
+        </div>
+      </div>
+
+      <details class="side-section">
+        <summary>ファイル</summary>
+        <div class="side-body">
+          <div class="side-buttons">
+            <button class="btn" id="btn-clear">新規作成</button>
+            <button class="btn" id="btn-open">開く</button>
+            <input type="file" id="file-open" accept=".json,application/json" style="display:none">
+            <button class="btn" id="btn-save">保存</button>
+            <button class="btn" id="btn-print">印刷</button>
+            <button class="btn" id="btn-pdf">PDFにする</button>
+          </div>
+        </div>
+      </details>
+
+      <details class="side-section">
+        <summary>漢字を探す・作る</summary>
+        <div class="side-body">
+          <div class="side-buttons">
+            <button class="btn" id="btn-ids" aria-controls="ids-window" aria-expanded="false">漢字検索</button>
+            <button class="btn" id="btn-composer" aria-controls="composer-window" aria-expanded="false">字体組立</button>
+          </div>
+        </div>
+      </details>
+
+      <details class="side-section">
+        <summary>文字とページ</summary>
+        <div class="side-body">
+        <div class="control">
+          <div class="row"><label style="flex:1" for="ctl-font">文字サイズ</label></div>
+          <input type="number" id="ctl-font" step="1" value="20" class="num-input">
+        </div>
+        <div class="control">
+          <div class="row"><label style="flex:1" for="ctl-line">行間</label></div>
+          <input type="number" id="ctl-line" step="1" value="36" class="num-input">
+        </div>
+        <div class="control">
+          <div class="row"><label style="flex:1" for="ctl-char">字間</label></div>
+          <input type="number" id="ctl-char" step="1" value="30" class="num-input">
+        </div>
+        <div class="control">
+          <div class="row"><label style="flex:1" for="ctl-margin">余白</label></div>
+          <input type="number" id="ctl-margin" step="1" value="75" class="num-input">
+        </div>
+        <div class="control">
+          <div class="row"><label style="flex:1" for="ctl-kanjiweight">漢字の太さ</label></div>
+          <input type="number" id="ctl-kanjiweight" step="10" value="650" class="num-input">
+        </div>
+        </div>
+      </details>
+
+      <details class="side-section">
+        <summary>訓読の文字</summary>
+        <div class="side-body">
+        <div class="control">
+          <div class="row"><label style="flex:1" for="ctl-annoscale">訓読文字サイズ(%)</label></div>
+          <input type="number" id="ctl-annoscale" step="1" value="45" class="num-input">
+        </div>
+        <div class="control">
+          <div class="row"><label style="flex:1" for="ctl-jukujikungap">熟字訓ルビの字間</label></div>
+          <input type="number" id="ctl-jukujikungap" step="1" value="0" class="num-input">
+        </div>
+        </div>
+      </details>
+
+      <details class="side-section">
+        <summary>注釈の位置(px)</summary>
+        <div class="side-body">
+          <div id="anno-sliders"></div>
+        </div>
+      </details>
+
+      <details class="side-section">
+        <summary>検索・置換</summary>
+        <div class="side-body">
+          <div class="control">
+            <div class="row"><label style="flex:1" for="search-text">検索する文字列</label></div>
+            <input type="text" id="search-text" class="text-input">
+          </div>
+          <div class="control">
+            <div class="row"><label style="flex:1" for="replace-text">置換する文字列</label></div>
+            <input type="text" id="replace-text" class="text-input">
+          </div>
+          <button class="btn" id="btn-replace" style="align-self:flex-start;">実行</button>
+          <div class="jitai-buttons">
+            <button class="btn" id="btn-to-shin">旧字体を新字体に変換</button>
+            <button class="btn" id="btn-to-kyu">新字体を旧字体に変換</button>
+            <p class="jitai-status" id="jitai-status" aria-live="polite"></p>
+          </div>
+        </div>
+      </details>
+
+      <details class="side-section">
+        <summary>記号を消す</summary>
+        <div class="side-body">
+          <p class="side-note">本文から漢字以外の字(句読点・括弧・仮名など)をすべて消し、上下記号も消します。改行と、振り仮名・送り仮名・訓点はそのまま残します。Ctrl+Zで元に戻せます。</p>
+          <button class="btn" id="btn-strip-symbols">漢字以外のすべての記号を消す</button>
+          <p class="jitai-status" id="strip-status" aria-live="polite"></p>
+        </div>
+      </details>
+    </div>
+
+    <div class="workspace-scroll" id="workspace-scroll">
+      <div class="zoom-stage" id="zoom-stage">
+        <div class="workspace" id="workspace"></div>
+      </div>
+    </div>
+  </div>
+
+  <footer class="site-footer" aria-label="クレジット">
+    <span>このサイトで使っているもの:</span>
+    <span>字形の表示 <a href="https://kamichikoichi.github.io/jigmo/" target="_blank" rel="noopener">字雲(Jigmo)</a> 上地宏一(CC0 1.0)</span>
+    <span>漢字検索のデータ <a href="https://www.chise.org/ids/" target="_blank" rel="noopener">CHISE IDS Database</a>・<a href="https://github.com/cjkvi/cjkvi-ids" target="_blank" rel="noopener">CJKVI IDS</a>(GNU GPL v2。まとめて整理したもの)</span>
+    <span>字体組立 <a href="https://github.com/kurgm/kage-engine" target="_blank" rel="noopener">kage-engine</a>・<a href="https://github.com/kurgm/kage-editor" target="_blank" rel="noopener">kage-editor</a>(GNU GPL-3.0-only)、部品の字形 <a href="https://glyphwiki.org/" target="_blank" rel="noopener">GlyphWiki</a></span>
+    <span>画面の書体 <a href="https://fonts.google.com/noto/specimen/Noto+Sans+JP" target="_blank" rel="noopener">Noto Sans JP</a>(SIL OFL 1.1)</span>
+  </footer>
+
+  <div class="ids-window" id="ids-window" role="dialog" aria-labelledby="ids-title" hidden>
+    <div class="ids-titlebar" id="ids-titlebar">
+      <span class="ids-title" id="ids-title">漢字検索(部首・部品)</span>
+      <button type="button" class="ids-close" id="ids-close" aria-label="閉じる">×</button>
+    </div>
+    <div class="ids-body">
+      <div class="ids-query-row">
+        <input type="text" class="ids-query" id="ids-query" placeholder="部首・部品を下から選ぶか、入力してください" aria-label="探したい字に含まれる部首・部品" autocomplete="off" spellcheck="false">
+        <button type="button" class="btn" id="ids-backspace" title="最後の1つを消す">1つ消す</button>
+        <button type="button" class="btn" id="ids-clear">すべて消す</button>
+      </div>
+      <div class="ids-tabs" id="ids-tabs" role="tablist" aria-label="部首・部品の画数"></div>
+      <div class="ids-palette" id="ids-palette" role="tabpanel"></div>
+      <div class="ids-results" id="ids-results" aria-live="polite">
+        <p class="ids-message">探したい字に含まれる部首・部品を選ぶと、それを多く含む字から順に表示します。同じ部品を2回選ぶと「2つ含む」の意味になります。見つかった字を押すと、本文のカーソル位置に入ります。</p>
+      </div>
+    </div>
+    <div class="ids-rz" data-dir="n"></div><div class="ids-rz" data-dir="s"></div>
+    <div class="ids-rz" data-dir="e"></div><div class="ids-rz" data-dir="w"></div>
+    <div class="ids-rz" data-dir="ne"></div><div class="ids-rz" data-dir="nw"></div>
+    <div class="ids-rz" data-dir="se"></div><div class="ids-rz" data-dir="sw"></div>
+  </div>
+
+  <div class="ids-window composer-window" id="composer-window" role="dialog" aria-labelledby="composer-title" hidden>
+    <div class="ids-titlebar" id="composer-titlebar">
+      <span class="ids-title" id="composer-title">字体組立</span>
+      <button type="button" class="ids-close" id="composer-close" aria-label="閉じる">×</button>
+    </div>
+    <iframe class="composer-frame" id="composer-frame" title="字体組立"></iframe>
+    <div class="ids-rz" data-dir="n"></div><div class="ids-rz" data-dir="s"></div>
+    <div class="ids-rz" data-dir="e"></div><div class="ids-rz" data-dir="w"></div>
+    <div class="ids-rz" data-dir="ne"></div><div class="ids-rz" data-dir="nw"></div>
+    <div class="ids-rz" data-dir="se"></div><div class="ids-rz" data-dir="sw"></div>
+  </div>
+
+  <div class="ids-window help-window" id="help-window" role="dialog" aria-labelledby="help-title" hidden>
+    <div class="ids-titlebar" id="help-titlebar">
+      <span class="ids-title" id="help-title">使い方</span>
+      <button type="button" class="ids-close" id="help-close" aria-label="閉じる">×</button>
+    </div>
+    <iframe class="composer-frame" id="help-frame" title="使い方"></iframe>
+    <div class="ids-rz" data-dir="n"></div><div class="ids-rz" data-dir="s"></div>
+    <div class="ids-rz" data-dir="e"></div><div class="ids-rz" data-dir="w"></div>
+    <div class="ids-rz" data-dir="ne"></div><div class="ids-rz" data-dir="nw"></div>
+    <div class="ids-rz" data-dir="se"></div><div class="ids-rz" data-dir="sw"></div>
+  </div>
+
+<!-- 漢字検索の計算部分(js フォルダ)。画面に依存しないので、更新するときはファイルごと差し替える -->
+<script src="js/ids_radicals.js"></script>
+<script src="js/ids_core.js"></script>
+
+<script>
+(function(){
+  "use strict";
+
+
+  const PAGE_W = 1123, PAGE_H = 794; // 297mm × 210mm(A4横)を96dpiのCSSピクセルに換算
+
+  // 行頭禁則文字(このマスは前の文字と同じセルに追い込む)
+  const NO_START_CHARS = new Set([
+    '、','。','，','．',',','.','・',':',';','!','?','！','？',
+    ')','）',']','］','}','｝','」','』','〉','》','〕','〗','›','’','”',
+    'ー','ゝ','ゞ','々',
+    'ぁ','ぃ','ぅ','ぇ','ぉ','っ','ゃ','ゅ','ょ','ゎ',
+    'ァ','ィ','ゥ','ェ','ォ','ッ','ャ','ュ','ョ','ヮ'
+  ]);
+
+  const state = { fontSize:20, lineSpacing:36, charSpacing:30, margin:75, annoScalePercent:45, kanjiWeight:650, jukujikunCharSpacing:0, pageNumberFormat:'n-of-m' };
+  let cellW, cellH, rowsPerColumn, colsPerPage, contentWidth, contentHeight;
+
+  // 漢字判定(漢文注釈の対象)
+  // 漢字判定:CJK統合漢字・拡張A・互換漢字に加え、第2面・第3面(拡張B〜J、互換漢字補助)もすべて含める。
+  const KANJI_RE = /^[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF\u{20000}-\u{3FFFF}]$/u;
+  // 組み立てた字(外字)。私用領域の字(U+F0000〜)に、組み立てた字形(SVG)を対応させて持つ
+  let gaiji = new Map(); // 字 → { svg, name }
+  const GAIJI_BASE = 0xF0000;
+  function isKanji(ch){ return !!ch && (KANJI_RE.test(ch) || gaiji.has(ch)); }
+
+  // 拡張B以降の漢字はサロゲートペア(文字列上は2単位)で1字になる。文字列の位置から1字を
+  // 取り出したり、前後の字へ移動したりするときは、必ず以下の関数を使って字を割らないようにする。
+  function charAtIdx(text, i){
+    if(i < 0 || i >= text.length) return '';
+    return String.fromCodePoint(text.codePointAt(i));
+  }
+  function nextCharIdx(text, i){
+    if(i >= text.length) return text.length;
+    return i + charAtIdx(text, i).length;
+  }
+  function prevCharIdx(text, i){
+    if(i <= 0) return 0;
+    const lo = text.charCodeAt(i - 1);
+    if(lo >= 0xDC00 && lo <= 0xDFFF && i >= 2){
+      const hi = text.charCodeAt(i - 2);
+      if(hi >= 0xD800 && hi <= 0xDBFF) return i - 2;
+    }
+    return i - 1;
+  }
+  function countChars(str){ return Array.from(str).length; }
+
+  // 直前が漢字のときだけ、句読点・鉤括弧を自動的にその漢字の「下記号」へ振り替える
+  const PUNCT_TO_SHIMO = new Set([
+    '、','。','，','．','・','！','？','：','；',':',';',
+    ')','）',']','］','}','｝','」','』','〉','》','〕','〗'
+  ]);
+
+  // 漢字の直前にある開き括弧を、自動的にその漢字の「上記号」へ振り替える
+  const OPEN_BRACKETS = new Set(['「','『','(','（','[','［','{','｛','〈','《','〔','〖']);
+
+  // ひらがな→カタカナ変換(送り仮名・左送り仮名用)
+  function hiraToKata(str){
+    return str.replace(/[\u3041-\u3096]/g, c => String.fromCharCode(c.charCodeAt(0) + 0x60));
+  }
+
+  const KUNTEN_PRESETS = [
+    'レ','一','二','三','四','上','中','下','甲','乙','丙','天','地','人',
+    '一レ','上レ'
+  ];
+
+  // 合成訓点(一レ点・上レ点など)の個別調整:各文字の拡大縮小と、エディタ表示・ボタン表示それぞれの位置調整
+  // 数値は文字サイズ20pxの時のpxとして扱い、実際の文字サイズに比例して自動調整する(ボタンは常に基準サイズ)
+  const KUNTEN_COMBOS = {
+    '一レ': {
+      scaleX: 1.2, scaleY: 1, secondScaleX: 1, secondScaleY: 1, gap: -6, // 「一」の横を120%
+      doc:    { firstY: 0, secondY: 0 },
+      button: { firstY: 1, secondY: -2 },
+    },
+    '上レ': {
+      scaleX: 1, scaleY: 0.6, secondScaleX: 1, secondScaleY: 0.75, gap: -2, // 「上」の縦を60%・「レ」の縦を75%
+      doc:    { firstY: 3, secondY: 0 },
+      button: { firstY: 4, secondY: -1 },
+    },
+  };
+
+  // 合成訓点を、拡大縮小した2つのspanとして描画する(通常の訓点はそのまま1文字表示)
+  // scaleOverride を渡すと、文字サイズに関係なく固定の比率で描画する(ボタンのプレビュー用)
+  function renderKuntenContent(container, value, scaleOverride){
+    container.textContent = '';
+    const combo = value && value.length === 2 ? KUNTEN_COMBOS[value] : null;
+    if(!combo){
+      container.textContent = value || '';
+      return;
+    }
+    const isButton = scaleOverride !== undefined;
+    const scale = isButton ? scaleOverride : (state.fontSize / ANNO_BASE_SIZE);
+    const pos = isButton ? combo.button : combo.doc;
+
+    const first = document.createElement('span');
+    first.textContent = value[0];
+    first.style.display = 'inline-block';
+    first.style.transform = 'translateY(' + (pos.firstY * scale) + 'px) scale(' + combo.scaleX + ',' + combo.scaleY + ')';
+    const second = document.createElement('span');
+    second.textContent = value[1];
+    second.style.display = 'inline-block';
+    second.style.transform = 'translateY(' + (pos.secondY * scale) + 'px) scale(' + (combo.secondScaleX || 1) + ',' + (combo.secondScaleY || 1) + ')';
+    second.style.marginTop = (combo.gap * scale) + 'px';
+    container.appendChild(first);
+    container.appendChild(second);
+  }
+
+  // 各注釈の表示位置(文字サイズ20pxのときの、選択した漢字の中心からのオフセットpx)
+  // 文字サイズが変わっても比率が崩れないよう、実際の描画時に (state.fontSize/20) 倍する
+  const ANNO_BASE_SIZE = 20;
+  const ANNO_OFFSETS = {
+    furi:   { x: 14,  y: 0 },   // 振り仮名:右に14px
+    okuri:  { x: 14,  y: 8 },   // 送り仮名:右に14px・下に8px(振り仮名が無い場合のみ使用)
+    kunten: { x: -7,  y: 14 },  // 訓点:左に7px・下に14px
+    shimo:  { x: 0,   y: 23 },  // 下記号:下に23px(通常の文字サイズ)
+    kami:   { x: 0,   y: -23 }, // 上記号:上に23px(通常の文字サイズ)
+    hFuri:  { x: -14, y: 0 },   // 左振り仮名:左に14px
+    hOkuri: { x: -14, y: 8 },   // 左送り仮名:左に14px・下に8px
+  };
+  const NORMAL_SIZE_KEYS = new Set(['kami', 'shimo']); // 通常の文字サイズで表示する項目
+  function getAnnoScale(){ return state.annoScalePercent / 100; } // 通常サイズ以外の注釈文字の縮小率(変更可能)
+  const CLOSE_BRACKETS = new Set([')','）',']','］','}','｝','」','』','〉','》','〕','〗']);
+  // ！」などを2字並べるときの位置(文字サイズ20px基準)。記号を少し上げ、閉じ括弧をその下に置く
+  const SHIMO_PAIR_LIFT = -3, SHIMO_PAIR_GAP = 3;
+  // 閉じ括弧と一緒に、同じ字の下記号として付けられる記号(例:。」 ！」 ？」 ：」 ；」)
+  const SHIMO_BEFORE_BRACKET = new Set(['。','、','，','．','！','？','：','；','!','?',':',';']);
+
+  function scaledOffset(key){
+    const off = ANNO_OFFSETS[key];
+    const scale = state.fontSize / ANNO_BASE_SIZE;
+    return { x: off.x * scale, y: off.y * scale };
+  }
+
+  // ---------- 漢字ごとの注釈データ ----------
+  // key: 本文中の文字インデックス(漢字の位置) → { furi, okuri, kunten, kami, shimo, hFuri, hOkuri }
+  let annotations = new Map();
+  let jukujikunSpans = []; // 熟字訓ルビ: { start, end, text } の配列(複数文字にまたがる振り仮名)
+
+  function getAnno(idx){
+    if(!annotations.has(idx)){
+      annotations.set(idx, { furi:'', okuri:'', kunten:'', kami:'', shimo:'', hFuri:'', hOkuri:'' });
+    }
+    return annotations.get(idx);
+  }
+
+  // 本文の編集で位置がずれても、注釈が対応する漢字に追従するようにする
+  function remapAnnotationsOnEdit(oldText, newText){
+    if(oldText === newText || (annotations.size === 0 && jukujikunSpans.length === 0)) return;
+    const maxPrefix = Math.min(oldText.length, newText.length);
+    let prefix = 0;
+    while(prefix < maxPrefix && oldText[prefix] === newText[prefix]) prefix++;
+    // 差分の境目がサロゲートペアの途中に来たら、ペアの先頭まで戻す(1字を割らない)
+    if(prefix > 0){ const hc = oldText.charCodeAt(prefix - 1); if(hc >= 0xD800 && hc <= 0xDBFF) prefix--; }
+    let suffix = 0;
+    const maxSuffix = maxPrefix - prefix;
+    while(suffix < maxSuffix && oldText[oldText.length-1-suffix] === newText[newText.length-1-suffix]) suffix++;
+    if(suffix > 0){ const lc = oldText.charCodeAt(oldText.length - suffix); if(lc >= 0xDC00 && lc <= 0xDFFF) suffix--; }
+
+    const oldMidStart = prefix, oldMidEnd = oldText.length - suffix;
+    const newMidStart = prefix, newMidEnd = newText.length - suffix;
+    const delta = (newMidEnd - newMidStart) - (oldMidEnd - oldMidStart);
+
+    const next = new Map();
+    annotations.forEach((data, idx) => {
+      if(idx < oldMidStart){ next.set(idx, data); }
+      else if(idx >= oldMidEnd){ next.set(idx + delta, data); }
+      // oldMidStart <= idx < oldMidEnd(削除された漢字)の注釈は破棄される
+    });
+    annotations = next;
+
+    // 熟字訓ルビ:範囲内の文字が1つでも削除された場合は、ルビ全体を削除する。
+    // 削除を伴わない編集(範囲の外側での挿入など)は、単純な位置ズレとして追従させる。
+    jukujikunSpans = jukujikunSpans
+      .filter(span => !(oldMidEnd > oldMidStart && oldMidStart < span.end && oldMidEnd > span.start))
+      .map(span => ({
+        start: span.start >= oldMidEnd ? span.start + delta : span.start,
+        end:   span.end   >= oldMidEnd ? span.end   + delta : span.end,
+        text: span.text,
+      }))
+      .filter(span => span.end > span.start);
+  }
+
+  // 注釈のキー(文字インデックス)を一括でずらす(自動割り当て処理が本文を直接書き換える際に使用)
+  function shiftAnnotationsFrom(fromIdx, delta){
+    jukujikunSpans = jukujikunSpans.map(span => ({
+      start: span.start >= fromIdx ? span.start + delta : span.start,
+      end:   span.end   >= fromIdx ? span.end   + delta : span.end,
+      text: span.text,
+    })).filter(span => span.end > span.start);
+    if(annotations.size === 0) return;
+    const next = new Map();
+    annotations.forEach((data, idx) => {
+      next.set(idx >= fromIdx ? idx + delta : idx, data);
+    });
+    annotations = next;
+  }
+
+  // 選択した1文字(鉤括弧・句読点・半角ハイフン)を、ボタン操作で上記号/下記号に変換する。
+  // ・開き括弧「『(半角ハイフンなど:直後の漢字の「上記号」にする
+  // ・閉じ括弧」』・句読点など:直前の漢字の「下記号」にする
+  // (自動では行わず、必ずこの関数がボタン等から呼ばれたときだけ処理する)
+  // 範囲 [rangeStart, rangeEnd) の中にある、対象になり得る記号(鉤括弧・句読点・半角ハイフン)を
+  // すべて処理して、隣の漢字の上記号/下記号にする。戻り値は変換できた個数。
+  function convertRangeToAnnotations(rangeStart, rangeEnd){
+    let text = hiddenInput.value;
+    let end = Math.min(rangeEnd, text.length);
+    let converted = 0;
+    let changed = true;
+    let guard = 0;
+    while(changed && guard < 2000){
+      changed = false;
+      guard++;
+      for(let i = rangeStart; i < Math.min(end, text.length); i++){
+        const ch = text[i];
+
+        // 閉じ括弧・句読点 → 直前の漢字の下記号
+        if(PUNCT_TO_SHIMO.has(ch) && i > 0 && isKanji(charAtIdx(text, prevCharIdx(text, i)))){
+          const kanjiIdx = prevCharIdx(text, i);
+          const anno = getAnno(kanjiIdx);
+          let newShimo = null;
+          if(anno.shimo.length === 0) newShimo = ch;
+          else if(anno.shimo.length === 1 && SHIMO_BEFORE_BRACKET.has(anno.shimo) && CLOSE_BRACKETS.has(ch)) newShimo = anno.shimo + ch;
+          if(newShimo !== null){
+            anno.shimo = newShimo;
+            shiftAnnotationsFrom(i + 1, -1);
+            text = text.slice(0, i) + text.slice(i + 1);
+            end--;
+            converted++;
+            changed = true;
+            i--;
+            continue;
+          }
+        }
+
+        // 開き括弧・半角ハイフン → 直後の漢字の上記号
+        if((OPEN_BRACKETS.has(ch) || ch === '-') && i + 1 < text.length && isKanji(charAtIdx(text, i + 1))){
+          const kanjiOldIdx = i + 1;
+          const existing = annotations.get(kanjiOldIdx);
+          if(!existing || !existing.kami){
+            shiftAnnotationsFrom(kanjiOldIdx, -1);
+            const anno = getAnno(i);
+            anno.kami = ch;
+            text = text.slice(0, i) + text.slice(i + 1);
+            end--;
+            converted++;
+            changed = true;
+            i--;
+            continue;
+          }
+        }
+      }
+    }
+    if(text !== hiddenInput.value){
+      hiddenInput.value = text;
+      prevText = text;
+    }
+    return converted;
+  }
+
+  // ボタン押下時の処理:選択範囲があればその範囲だけ、無ければ文書全体を対象にする
+  function convertSelectionToAnnotation(){
+    const s = hiddenInput.selectionStart;
+    const e = hiddenInput.selectionEnd;
+    const hasSelection = e > s;
+    const rangeStart = hasSelection ? s : 0;
+    const rangeEnd = hasSelection ? e : hiddenInput.value.length;
+
+    pushUndo(true, 'main:manual-anno');
+    const count = convertRangeToAnnotations(rangeStart, rangeEnd);
+
+    if(count === 0){
+      alert(hasSelection
+        ? '選択範囲の中に、変換できる鉤括弧・句読点・半角ハイフンが見つかりませんでした。'
+        : '文書内に、変換できる鉤括弧・句読点・半角ハイフンが見つかりませんでした。');
+      return false;
+    }
+
+    hiddenInput.setSelectionRange(rangeStart, rangeStart);
+    render();
+    hiddenInput.focus();
+    return true;
+  }
+
+  // convertRangeToAnnotations の逆処理:範囲内の漢字が持つ上記号・下記号を、
+  // 本文中の普通の文字として書き戻す(注釈は空にする)。
+  function releaseAnnotationsInRange(rangeStart, rangeEnd){
+    let text = hiddenInput.value;
+    let end = Math.min(rangeEnd, text.length);
+    let released = 0;
+    // 後ろから処理すると、挿入によるインデックスのズレを気にしなくてよい
+    for(let i = Math.min(end, text.length) - 1; i >= rangeStart; i--){
+      if(!isKanji(charAtIdx(text, i))) continue;
+      const kanjiLen = charAtIdx(text, i).length;
+      const anno = annotations.get(i);
+      if(!anno) continue;
+
+      if(anno.shimo){
+        const released_shimo = anno.shimo;
+        anno.shimo = '';
+        shiftAnnotationsFrom(i + kanjiLen, released_shimo.length);
+        text = text.slice(0, i + kanjiLen) + released_shimo + text.slice(i + kanjiLen);
+        released += released_shimo.length;
+      }
+      if(anno.kami){
+        const released_kami = anno.kami;
+        anno.kami = '';
+        shiftAnnotationsFrom(i, released_kami.length);
+        text = text.slice(0, i) + released_kami + text.slice(i);
+        released += released_kami.length;
+      }
+    }
+    if(text !== hiddenInput.value){
+      hiddenInput.value = text;
+      prevText = text;
+    }
+    return released;
+  }
+
+  function releaseSelectionAnnotations(){
+    const s = hiddenInput.selectionStart;
+    const e = hiddenInput.selectionEnd;
+    const hasSelection = e > s;
+    const rangeStart = hasSelection ? s : 0;
+    const rangeEnd = hasSelection ? e : hiddenInput.value.length;
+
+    pushUndo(true, 'main:manual-release');
+    const count = releaseAnnotationsInRange(rangeStart, rangeEnd);
+
+    if(count === 0){
+      alert(hasSelection
+        ? '選択範囲の中に、文字に戻せる上記号・下記号が見つかりませんでした。'
+        : '文書内に、文字に戻せる上記号・下記号が見つかりませんでした。');
+      return false;
+    }
+
+    hiddenInput.setSelectionRange(rangeStart, rangeStart);
+    render();
+    hiddenInput.focus();
+    return true;
+  }
+
+  // 漢字を削除しようとしたときの特殊処理:
+  // 下記号があれば漢字の代わりに下記号を末尾から1文字消す。
+  // 下記号が無く上記号があれば、漢字を消すと同時に上記号を本文の文字として残す。
+  // どちらも無ければ通常通り削除させる(false を返す)。
+  function handleSpecialDelete(idx){
+    const text = hiddenInput.value;
+    const ch = charAtIdx(text, idx);
+    if(!isKanji(ch)) return false;
+    const anno = annotations.get(idx);
+    if(!anno) return false;
+
+    if(anno.shimo && anno.shimo.length > 0){
+      pushUndo(true, 'main:specialDelete');
+      anno.shimo = anno.shimo.slice(0, -1);
+      render();
+      return true;
+    }
+    if(anno.kami && anno.kami.length > 0){
+      pushUndo(true, 'main:specialDelete');
+      const released = anno.kami;
+      annotations.delete(idx);
+      const newText = text.slice(0, idx) + released + text.slice(idx + ch.length);
+      remapAnnotationsOnEdit(text, newText);
+      prevText = newText;
+      hiddenInput.value = newText;
+      const newCaret = idx + released.length;
+      hiddenInput.setSelectionRange(newCaret, newCaret);
+      render();
+      return true;
+    }
+    return false;
+  }
+
+  const root = document.documentElement;
+  const workspace = document.getElementById('workspace');
+
+  // 実際の入力を受け持つ、見た目には出ない<textarea>(IME・undo/redo・コピペはブラウザ標準に任せる)
+  const hiddenInput = document.createElement('textarea');
+  hiddenInput.className = 'hidden-input';
+  hiddenInput.setAttribute('spellcheck', 'false');
+  hiddenInput.setAttribute('autocomplete', 'off');
+  hiddenInput.setAttribute('autocorrect', 'off');
+  hiddenInput.setAttribute('autocapitalize', 'off');
+  hiddenInput.setAttribute('wrap', 'off');
+  document.body.appendChild(hiddenInput);
+
+  const caretBar = document.createElement('div');
+  caretBar.className = 'caret-bar';
+  document.body.appendChild(caretBar);
+
+  let layout = { pages: [[[]]], posOf: [{ page:0, col:0, y:0 }] };
+  const pageRefs = [];
+  let allCellEls = []; // { el, idx } のフラットリスト(選択範囲のハイライト用)
+  let dragAnchor = null; // ドラッグ選択の起点
+  // 表示倍率(ジオメトリには影響しない、見た目だけの拡大縮小)。zoom は実際の拡大率。
+  // 画面に出す「100%」は、実際の 1.11 倍(以前の111%)の大きさにあたる
+  const ZOOM_BASE = 1.11;
+  let zoom = ZOOM_BASE;
+  const workspaceScroll = document.getElementById('workspace-scroll');
+  const zoomStage = document.getElementById('zoom-stage');
+  const ZOOM_MIN = 0.25 * ZOOM_BASE, ZOOM_MAX = 4 * ZOOM_BASE; // 表示上の25%〜400%
+
+  // ページを倍率に合わせて拡大縮小し、その大きさの台を用意する(スクロールできる範囲が正しくなる)
+  function layoutZoomStage(){
+    workspace.style.transform = 'scale(' + zoom + ')';
+    zoomStage.style.width = (workspace.offsetWidth * zoom) + 'px';
+    zoomStage.style.height = (workspace.offsetHeight * zoom) + 'px';
+  }
+
+  // 倍率を変える。clientX・clientY の位置(指やマウスのある所)が動かないように、スクロール位置も合わせる
+  function setZoom(z, clientX, clientY){
+    z = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z));
+    if(Math.abs(z - zoom) < 0.0001) return;
+    const sc = workspaceScroll.getBoundingClientRect();
+    if(clientX == null){ clientX = sc.left + sc.width / 2; clientY = sc.top + sc.height / 2; }
+    const before = zoomStage.getBoundingClientRect();
+    const nx = (clientX - before.left) / zoom, ny = (clientY - before.top) / zoom;
+    zoom = z;
+    layoutZoomStage();
+    const after = zoomStage.getBoundingClientRect();
+    workspaceScroll.scrollLeft += (after.left + nx * zoom) - clientX;
+    workspaceScroll.scrollTop += (after.top + ny * zoom) - clientY;
+    const percent = Math.round(zoom / ZOOM_BASE * 100);
+    document.getElementById('ctl-zoom').value = percent;
+    document.getElementById('val-zoom').textContent = percent + '%';
+    updateCaretVisual();
+  }
+
+  // トラックパッドのピンチ(Chrome・Edge・Firefox では Ctrl 付きのホイールとして届く)と Ctrl+ホイール
+  workspaceScroll.addEventListener('wheel', (e) => {
+    if(!e.ctrlKey) return;
+    e.preventDefault();
+    let factor;
+    if(e.deltaMode !== 0 || Math.abs(e.deltaY) >= 50) factor = e.deltaY < 0 ? 1.1 : 1 / 1.1; // マウスのホイールは1目盛りで10%ずつ
+    else factor = Math.exp(-e.deltaY * 0.01);                                               // ピンチは指の動きに合わせて滑らかに
+    setZoom(zoom * factor, e.clientX, e.clientY);
+  }, { passive: false });
+
+  // Safari のトラックパッドのピンチ
+  let gestureStartZoom = 1;
+  workspaceScroll.addEventListener('gesturestart', (e) => { e.preventDefault(); gestureStartZoom = zoom; });
+  workspaceScroll.addEventListener('gesturechange', (e) => { e.preventDefault(); setZoom(gestureStartZoom * e.scale, e.clientX, e.clientY); });
+  workspaceScroll.addEventListener('gestureend', (e) => { e.preventDefault(); });
+
+  // タッチパネルの2本指のピンチ
+  const touchPts = new Map();
+  let pinch = null;
+  workspaceScroll.addEventListener('pointerdown', (e) => {
+    if(e.pointerType !== 'touch') return;
+    touchPts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if(touchPts.size === 2){
+      const [a, b] = [...touchPts.values()];
+      pinch = { dist: Math.hypot(a.x - b.x, a.y - b.y) || 1, zoom };
+    }
+  });
+  workspaceScroll.addEventListener('pointermove', (e) => {
+    if(!touchPts.has(e.pointerId)) return;
+    touchPts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if(pinch && touchPts.size === 2){
+      const [a, b] = [...touchPts.values()];
+      setZoom(pinch.zoom * Math.hypot(a.x - b.x, a.y - b.y) / pinch.dist, (a.x + b.x) / 2, (a.y + b.y) / 2);
+    }
+  });
+  const endTouch = (e) => { touchPts.delete(e.pointerId); if(touchPts.size < 2) pinch = null; };
+  workspaceScroll.addEventListener('pointerup', endTouch);
+  workspaceScroll.addEventListener('pointercancel', endTouch);
+
+  // ---------- 幾何(マス目のサイズ)計算 ----------
+  // 明朝体フォントは通常・太字の2値しか持たないことが多く、font-weightの数値をそのまま
+  // 使うと途中の値が無視されて特定のしきい値で急に切り替わってしまう。そこで実際の太さの
+  // 変化は文字の縁取り(text-stroke)の太さで連続的に表現し、数値入力はそのための目安として扱う。
+  function kanjiWeightToStroke(weight){
+    return Math.max(0, (weight - 400) / 500 * 1.1).toFixed(2);
+  }
+
+  // 組み立てた字(外字)は画像なので、本文の漢字のような太さの調整が効かない。
+  // そこで、字形のSVGにごく細い縁取りを描き足して、元の太さからほんのり太くして表示する。
+  const GAIJI_STROKE_PX = 0.2; // 文字の大きさ20pxのときに、縁取りが約0.2px(片側0.1px)になる太さ
+  const gaijiSrcCache = new Map();
+  function gaijiDisplaySrc(svg){
+    const m = svg.match(/viewBox="\s*[-\d.]+\s+[-\d.]+\s+([\d.]+)\s+[\d.]+\s*"/);
+    const vbWidth = m ? Number(m[1]) : 200;
+    const strokeUnits = (GAIJI_STROKE_PX * vbWidth / 20).toFixed(2); // 字の大きさに合わせて伸び縮みするので、比率で決める
+    const key = strokeUnits + '|' + svg;
+    if(gaijiSrcCache.has(key)) return gaijiSrcCache.get(key);
+    const thick = svg
+      .replace(/(<svg\b[^>]*>)/, '$1<g stroke="black" stroke-width="' + strokeUnits + '" stroke-linejoin="round" stroke-linecap="round">')
+      .replace(/<\/svg>\s*$/, '</g></svg>');
+    const src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(thick);
+    gaijiSrcCache.set(key, src);
+    return src;
+  }
+
+  function recomputeGeometry(){
+    root.style.setProperty('--font-size', state.fontSize + 'px');
+    root.style.setProperty('--margin', state.margin + 'px');
+    root.style.setProperty('--anno-scale', state.annoScalePercent / 100);
+    root.style.setProperty('--kanji-stroke', kanjiWeightToStroke(state.kanjiWeight) + 'px');
+    const kanjiSpace = state.fontSize + 12; // 漢字1字に確保する正方形スペース(注釈表示用)
+    cellW = Math.max(state.fontSize + state.lineSpacing, kanjiSpace);   // 列の幅
+    cellH = Math.max(state.fontSize + state.charSpacing, kanjiSpace);  // 1文字分の高さ
+    contentWidth = PAGE_W - state.margin * 2;
+    contentHeight = PAGE_H - state.margin * 2;
+    rowsPerColumn = Math.max(1, Math.floor(contentHeight / cellH));
+    colsPerPage = Math.max(1, Math.floor(contentWidth / cellW));
+  }
+
+  // ---------- レイアウト計算(禁則文字の追い込みを含む) ----------
+  function computeLayout(text){
+    const pages = [];
+    const posOf = new Array(text.length + 1);
+    let page = [], col = [], row = 0;
+    let colStart = 0;          // 今の列の、いちばん上のカーソル位置(空の行でもその行の位置になる)
+
+    const curPage = () => pages.length;
+    const curCol  = () => page.length;
+
+    // 空の列(=改行だけの空白列)も必ず1列として数える。でないと改行を連続で打っても
+    // 2回目以降が同じ列に潰れてしまう。
+    function commitColumn(nextStart){ col.startIdx = colStart; page.push(col); col = []; row = 0; colStart = nextStart; }
+    function commitPage(){ if(page.length) pages.push(page); page = []; }
+
+    for(let i = 0; i < text.length; i++){
+      const ch = charAtIdx(text, i);
+
+      if(ch === '\n'){
+        posOf[i] = { page: curPage(), col: curCol(), y: row };
+        commitColumn(i + 1);
+        if(page.length >= colsPerPage) commitPage();
+        continue;
+      }
+
+      if(row >= rowsPerColumn){
+        commitColumn(i);
+        if(page.length >= colsPerPage) commitPage();
+      }
+
+      posOf[i] = { page: curPage(), col: curCol(), y: row };
+      col.push({ mainIdx: i, extra: [], len: ch.length });
+      row++;
+      if(ch.length === 2){
+        posOf[i + 1] = posOf[i]; // ペアの後半の位置は、同じ字の前として扱う
+        i++;
+      }
+    }
+
+    posOf[text.length] = { page: curPage(), col: curCol(), y: row };
+
+    // 最後の列を確定させる。改行で終わっている場合は、その後ろの空の行(カーソルが置かれる行)も
+    // 1列として持つ。こうしないと、改行で終わる文や、ページの最後の行の改行の後ろにカーソルが出ない。
+    commitColumn(text.length);
+    if(page.length) pages.push(page);
+    if(pages.length === 0) pages.push([[]]);
+
+    return { pages, posOf };
+  }
+
+  // ---------- 1マスの中でのクリック位置 → 文字インデックス ----------
+  // マス全体(字間込みのピッチ)をそのマスに入っている文字数で均等分割し、
+  // 各文字の担当範囲の「上半分→その文字の前」「下半分→その文字の後ろ」で判定する。
+  function caretIndexForCell(cell, fraction){
+    const carets = [cell.mainIdx, ...cell.extra,
+      (cell.extra.length ? cell.extra[cell.extra.length - 1] + 1 : cell.mainIdx + (cell.len || 1))];
+    const n = carets.length - 1;
+    const regionSize = 1 / n;
+    let r = Math.floor(fraction / regionSize);
+    if(r >= n) r = n - 1;
+    if(r < 0) r = 0;
+    const within = (fraction - r * regionSize) / regionSize;
+    return within < 0.5 ? carets[r] : carets[r + 1];
+  }
+
+  function pointToIndex(pageIdx, x, y){
+    const page = layout.pages[pageIdx] || [];
+    let colIdx = Math.floor((contentWidth - x) / cellW);
+    colIdx = Math.max(0, Math.min(colIdx, Math.max(page.length - 1, 0)));
+    const col = page[colIdx] || [];
+
+    if(col.length === 0){
+      return typeof col.startIdx === 'number' ? col.startIdx : 0; // 空の行は、その行の初め
+    }
+
+    let rawRow = y / cellH;
+    let rowIdx = Math.floor(rawRow);
+    let fraction = rawRow - rowIdx;
+    if(rowIdx < 0){ rowIdx = 0; fraction = 0; }
+    if(rowIdx >= col.length){ rowIdx = col.length - 1; fraction = 1; }
+
+    return caretIndexForCell(col[rowIdx], fraction);
+  }
+
+  // ---------- 矢印キーでの移動(縦書きの読み順に合わせる) ----------
+  function moveByColumn(s, deltaCol){
+    const pos = layout.posOf[s];
+    if(!pos) return s;
+    const row = Math.round(pos.y);
+    let targetPage = pos.page;
+    let targetCol = pos.col + deltaCol;
+    const pageCols = layout.pages[targetPage] ? layout.pages[targetPage].length : 0;
+
+    if(targetCol < 0){
+      targetPage -= 1;
+      if(targetPage < 0) return s;
+      targetCol = (layout.pages[targetPage] ? layout.pages[targetPage].length : 1) - 1;
+    } else if(targetCol >= pageCols){
+      targetPage += 1;
+      if(targetPage >= layout.pages.length) return s;
+      targetCol = 0;
+    }
+
+    const col = (layout.pages[targetPage] && layout.pages[targetPage][targetCol]) || [];
+    if(col.length === 0) return typeof col.startIdx === 'number' ? col.startIdx : s; // 空の行は、その行の初め
+    if(row >= col.length){
+      const last = col[col.length - 1];
+      return last.mainIdx + (last.len || 1); // 移動先の行が短いときは、その行の終わり
+    }
+    return col[row].mainIdx;
+  }
+
+  // ---------- ドラッグ選択 ----------
+  function findPageIdxAtY(clientY){
+    for(let i = 0; i < pageRefs.length; i++){
+      const r = pageRefs[i].contentEl.getBoundingClientRect();
+      if(clientY >= r.top && clientY <= r.bottom) return i;
+    }
+    if(pageRefs.length === 0) return null;
+    const first = pageRefs[0].contentEl.getBoundingClientRect();
+    return clientY < first.top ? 0 : pageRefs.length - 1;
+  }
+
+  document.addEventListener('mousemove', (e) => {
+    if(dragAnchor === null) return;
+    const pageIdx = findPageIdxAtY(e.clientY);
+    if(pageIdx === null) return;
+    const rect = pageRefs[pageIdx].contentEl.getBoundingClientRect();
+    const idx = pointToIndex(pageIdx, (e.clientX - rect.left) / zoom, (e.clientY - rect.top) / zoom);
+    const start = Math.min(dragAnchor, idx);
+    const end = Math.max(dragAnchor, idx);
+    const direction = idx >= dragAnchor ? 'forward' : 'backward';
+    hiddenInput.setSelectionRange(start, end, direction);
+    updateCaretVisual();
+  });
+  document.addEventListener('mouseup', () => { dragAnchor = null; });
+
+  // ---------- 描画 ----------
+  function buildPage(pageIdx){
+    const pageEl = document.createElement('div');
+    pageEl.className = 'page';
+    pageEl.style.width = PAGE_W + 'px';
+    pageEl.style.height = PAGE_H + 'px';
+
+    const contentEl = document.createElement('div');
+    contentEl.className = 'page-content';
+    contentEl.addEventListener('mousedown', (e) => {
+      if(e.button !== 0) return; // 右クリック(コンテキストメニュー用)は選択範囲を変えない
+      e.preventDefault();
+      const rect = contentEl.getBoundingClientRect();
+      const x = (e.clientX - rect.left) / zoom;
+      const y = (e.clientY - rect.top) / zoom;
+      const idx = pointToIndex(pageIdx, x, y);
+      dragAnchor = idx;
+      hiddenInput.setSelectionRange(idx, idx);
+      hiddenInput.focus();
+      updateCaretVisual();
+    });
+    pageEl.appendChild(contentEl);
+
+    const numEl = document.createElement('div');
+    numEl.className = 'page-number';
+    numEl.title = '押すと、ページ番号の表記を変えられます';
+    numEl.addEventListener('mousedown', (e) => { e.stopPropagation(); });
+    numEl.addEventListener('click', (e) => {
+      e.stopPropagation(); // 押した直後にメニューが閉じないように
+      showPageNumberMenu(e.clientX, e.clientY);
+    });
+    pageEl.appendChild(numEl);
+
+    return { pageEl, contentEl, numEl };
+  }
+
+  function addAnnoSpanXY(parent, value, baseX, baseY, normalSize, opts){
+    if(!value) return null;
+    const scale = state.fontSize / ANNO_BASE_SIZE;
+    const x = baseX * scale, y = baseY * scale;
+    const span = document.createElement('span');
+    span.className = 'anno' + (normalSize ? ' anno-normal-size' : '');
+    span.textContent = value;
+    span.style.left = '50%';
+    if(opts && typeof opts.topPx === 'number'){
+      span.style.top = 'calc(50% + ' + opts.topPx + 'px)';
+      span.style.transform = 'translateX(calc(-50% + ' + x + 'px))';
+    } else {
+      span.style.top = '50%';
+      span.style.transform = 'translate(calc(-50% + ' + x + 'px), calc(-50% + ' + y + 'px))';
+    }
+    parent.appendChild(span);
+    return span;
+  }
+
+  function addAnnoSpan(parent, value, key, opts){
+    const off = ANNO_OFFSETS[key];
+    return addAnnoSpanXY(parent, value, off.x, off.y, NORMAL_SIZE_KEYS.has(key), opts);
+  }
+
+  function buildCell(cell, colIdx, rowIdx, text){
+    const el = document.createElement('div');
+    el.className = 'cell';
+    el.style.width = cellW + 'px';
+    el.style.height = cellH + 'px';
+    el.style.right = (colIdx * cellW) + 'px';
+    el.style.top = (rowIdx * cellH) + 'px';
+    const ch = charAtIdx(text, cell.mainIdx);
+    const gj = gaiji.get(ch);
+    if(gj){
+      el.textContent = '';
+      const img = document.createElement('img');
+      img.className = 'gaiji';
+      img.src = gaijiDisplaySrc(gj.svg);
+      img.alt = gj.name || '組み立てた字';
+      el.appendChild(img);
+    } else {
+      el.textContent = ch;
+    }
+    cell.extra.forEach((idx) => {
+      const sub = document.createElement('span');
+      sub.className = 'sub';
+      sub.textContent = text[idx];
+      el.appendChild(sub);
+    });
+
+    if(isKanji(ch)){
+      el.classList.add('is-kanji');
+      const anno = annotations.get(cell.mainIdx);
+      const jkSpan = jukujikunSpans.find(sp => cell.mainIdx >= sp.start && cell.mainIdx < sp.end);
+      if(anno){
+        // 上下で「下記号を持つ文字」と「上記号を持つ文字」が連続する場合は、互いに少し寄せる
+        let shimoExtra = 0, kamiExtra = 0;
+        if(anno.shimo){
+          const nextIdx = nextCharIdx(text, cell.mainIdx);
+          const nextAnno = annotations.get(nextIdx);
+          const p1 = layout.posOf[cell.mainIdx], p2 = layout.posOf[nextIdx];
+          if(nextAnno && nextAnno.kami && isKanji(charAtIdx(text, nextIdx)) && p1 && p2 &&
+             p1.page === p2.page && p1.col === p2.col && p2.y === p1.y + 1){
+            shimoExtra = -2; // 上へ2px
+          }
+        }
+        if(anno.kami){
+          const prevIdx = prevCharIdx(text, cell.mainIdx);
+          const prevAnno = annotations.get(prevIdx);
+          const p1 = layout.posOf[prevIdx], p2 = layout.posOf[cell.mainIdx];
+          if(cell.mainIdx > 0 && prevAnno && prevAnno.shimo && isKanji(charAtIdx(text, prevIdx)) && p1 && p2 &&
+             p1.page === p2.page && p1.col === p2.col && p2.y === p1.y + 1){
+            kamiExtra = 2; // 下へ2px
+          }
+        }
+
+        // 上記号が半角ハイフンの場合は、一つ前の文字と当該文字のちょうど中間に表示し、縦を1.75倍にする
+        if(anno.kami === '-'){
+          const scale = state.fontSize / ANNO_BASE_SIZE;
+          const kamiSpan = addAnnoSpanXY(el, anno.kami, 1, -(cellH / 2) / scale, true);
+          if(kamiSpan) kamiSpan.style.transform += ' scaleY(1.75)';
+        } else if(anno.kami){
+          addAnnoSpanXY(el, anno.kami, ANNO_OFFSETS.kami.x, ANNO_OFFSETS.kami.y + kamiExtra, true);
+        }
+        // 下記号:句点+鉤括弧閉じの組み合わせのときは、それぞれ個別の位置に表示する
+        // また特定の記号は見た目を個別に調整する(！？は縦半分・8px上)
+        // 「：」はブラウザ標準の縦書き回転で正しく回るが、「；」は回らないため個別に回転させる
+        // 下記号を1字置く(！？：;は、それぞれ見た目を調整する)。dy は上下のずらし量
+        const addShimoMark = (shimoCh, dy) => {
+          const isBangType = (shimoCh === '！' || shimoCh === '？' || shimoCh === '!' || shimoCh === '?');
+          const isColonType = (shimoCh === '：' || shimoCh === '；' || shimoCh === ':' || shimoCh === ';');
+          const isSemicolon = (shimoCh === '；' || shimoCh === ';');
+          let y = ANNO_OFFSETS.shimo.y + shimoExtra + dy;
+          if(isBangType) y -= 5;
+          else if(isColonType) y -= 4;
+          const shimoSpan = addAnnoSpanXY(el, shimoCh, ANNO_OFFSETS.shimo.x, y, true);
+          if(shimoSpan){
+            if(isBangType){
+              shimoSpan.style.transform += ' scaleY(0.8)';
+            } else if(isSemicolon){
+              shimoSpan.style.textOrientation = 'upright';
+              shimoSpan.style.transform += ' rotate(90deg)';
+            }
+          }
+          return shimoSpan;
+        };
+        if(anno.shimo && anno.shimo.length === 2 && (anno.shimo[0] === '。' || anno.shimo[0] === '、' || anno.shimo[0] === '，' || anno.shimo[0] === '．')){
+          addAnnoSpanXY(el, anno.shimo[0], 0, 22, true); // 句読点
+          addAnnoSpanXY(el, anno.shimo[1], 0, 24, true); // 鉤括弧閉じ
+        } else if(anno.shimo && anno.shimo.length === 2){
+          // ！」 ？」 ：」 ；」 など:記号を少し上に寄せ、その下に閉じ括弧を続ける
+          addShimoMark(anno.shimo[0], SHIMO_PAIR_LIFT);
+          addAnnoSpanXY(el, anno.shimo[1], 0, 24 + SHIMO_PAIR_LIFT + SHIMO_PAIR_GAP, true);
+        } else if(anno.shimo){
+          addShimoMark(anno.shimo, 0);
+        }
+        // 左振り仮名・左送り仮名:右側(振り仮名・送り仮名)と同じ仕組みで、左送り仮名を左振り仮名の下に続ける
+        if(anno.hFuri && anno.hOkuri){
+          addAnnoSpan(el, anno.hFuri, 'hFuri');
+          const hFuriAnnoCharSize = state.fontSize * getAnnoScale();
+          const hFuriHeightPx = anno.hFuri.length * hFuriAnnoCharSize;
+          addAnnoSpan(el, anno.hOkuri, 'hOkuri', { topPx: hFuriHeightPx / 2 });
+        } else if(anno.hFuri){
+          addAnnoSpan(el, anno.hFuri, 'hFuri');
+        } else if(anno.hOkuri){
+          addAnnoSpan(el, anno.hOkuri, 'hOkuri');
+        }
+        const kuntenSpan = addAnnoSpan(el, anno.kunten, 'kunten');
+        if(kuntenSpan) renderKuntenContent(kuntenSpan, anno.kunten);
+      }
+
+      // 振り仮名・送り仮名:文字数に応じて配置を切り替える
+      // ただし熟字訓ルビの範囲に含まれる文字は、通常の振り仮名の代わりにグループ全体のルビを表示する
+      if(jkSpan){
+        if(cell.mainIdx === jkSpan.start){
+          const groupLen = countChars(text.slice(jkSpan.start, jkSpan.end));
+          const scale = state.fontSize / ANNO_BASE_SIZE;
+          // 上限:先頭の文字に振り仮名を1文字振ったときの位置(その文字の中央、真右)
+          // 下限:末尾の文字に振り仮名を1文字振ったときの位置(その文字の中央、真右)
+          // この範囲を上限・下限として、読みの文字を均等割り付けする
+          const upperBoundPx = cellH / 2;
+          const lowerBoundPx = (groupLen - 1) * cellH + cellH / 2;
+          const chars = Array.from(jkSpan.text);
+          const n = chars.length;
+          chars.forEach((ch, idx) => {
+            const yPos = n > 1
+              ? upperBoundPx + idx * (lowerBoundPx - upperBoundPx) / (n - 1)
+              : (upperBoundPx + lowerBoundPx) / 2;
+            const span = document.createElement('span');
+            span.className = 'anno';
+            span.textContent = ch;
+            span.style.left = '50%';
+            span.style.top = yPos + 'px';
+            span.style.transform = 'translate(calc(-50% + ' + (14 * scale) + 'px), -50%)';
+            span.style.zIndex = '4'; // 後ろの(範囲内の)マスが選択状態の背景色で上に重なって見切れないようにする
+            el.appendChild(span);
+          });
+        }
+      } else if(anno && anno.furi && anno.okuri){
+        if(anno.furi.length + anno.okuri.length > 4){
+          // 文字数が多い場合は、振り仮名と送り仮名を並列の2列で表示する
+          addAnnoSpanXY(el, anno.furi,  19, 0, false);
+          addAnnoSpanXY(el, anno.okuri, 12, 14, false);
+        } else {
+          addAnnoSpan(el, anno.furi, 'furi');
+          // 振り仮名の最後の文字の下から続けて表示する(概算の高さで計算)
+          const annoCharSize = state.fontSize * getAnnoScale();
+          const furiHeightPx = anno.furi.length * annoCharSize;
+          addAnnoSpan(el, anno.okuri, 'okuri', { topPx: furiHeightPx / 2 });
+        }
+      } else if(anno && anno.furi){
+        addAnnoSpan(el, anno.furi, 'furi');
+      } else if(anno && anno.okuri){
+        if(anno.okuri.length > 4){
+          // 4文字を超える送り仮名は、前半3文字と残りを2列に分けて表示する
+          addAnnoSpanXY(el, anno.okuri.slice(0, 3), 19, 7, false);
+          addAnnoSpanXY(el, anno.okuri.slice(3), 12, 17, false);
+        } else {
+          addAnnoSpan(el, anno.okuri, 'okuri');
+        }
+      }
+
+      // 右クリックのコンテキストメニューから、この漢字の注釈パネルを開けるように位置を覚えておく
+      el.setAttribute('data-idx', String(cell.mainIdx));
+    }
+    allCellEls.push({ el, idx: cell.mainIdx });
+    cell.extra.forEach((idx) => allCellEls.push({ el, idx }));
+    return el;
+  }
+
+  function render(){
+    const text = hiddenInput.value;
+    layout = computeLayout(text);
+
+    // hiddenInput / caretBar は body 直下に固定したまま動かさない(workspace の子ではないので影響を受けない)
+    workspace.innerHTML = '';
+    pageRefs.length = 0;
+    allCellEls = [];
+
+    layout.pages.forEach((columns, pIdx) => {
+      const refs = buildPage(pIdx);
+      columns.forEach((col, cIdx) => {
+        col.forEach((cell, rIdx) => {
+          refs.contentEl.appendChild(buildCell(cell, cIdx, rIdx, text));
+        });
+        // 空の行(改行だけの行):選択に含まれたときに分かるよう、行の初めに目印を置く
+        if(col.length === 0 && typeof col.startIdx === 'number' && text[col.startIdx] === '\n'){
+          const mark = document.createElement('div');
+          mark.className = 'cell eol-mark';
+          mark.style.width = cellW + 'px';
+          mark.style.height = (cellH * 0.5) + 'px';
+          mark.style.right = (cIdx * cellW) + 'px';
+          mark.style.top = '0px';
+          refs.contentEl.appendChild(mark);
+          allCellEls.push({ el: mark, idx: col.startIdx });
+        }
+      });
+      refs.numEl.textContent = formatPageNumber(pIdx + 1, layout.pages.length);
+      refs.numEl.classList.toggle('is-empty', state.pageNumberFormat === 'none');
+      workspace.appendChild(refs.pageEl);
+      pageRefs.push(refs);
+    });
+
+    document.getElementById('stat-chars').textContent = countChars(text);
+    document.getElementById('stat-pages').textContent = layout.pages.length;
+    layoutZoomStage();
+
+    updateCaretVisual();
+  }
+
+  function updateSelectionVisual(){
+    const s = Math.min(hiddenInput.selectionStart, hiddenInput.selectionEnd);
+    const e = Math.max(hiddenInput.selectionStart, hiddenInput.selectionEnd);
+    allCellEls.forEach(({ el, idx }) => {
+      if(idx >= s && idx < e) el.classList.add('cell-selected');
+      else el.classList.remove('cell-selected');
+    });
+  }
+
+  function updateCaretVisual(){
+    updateSelectionVisual();
+    const hasSelection = hiddenInput.selectionStart !== hiddenInput.selectionEnd;
+    caretBar.style.display = hasSelection ? 'none' : '';
+
+    const s = hiddenInput.selectionEnd; // 選択がある場合は「移動している側」の端に合わせる
+    const pos = layout.posOf[s];
+    if(!pos) return; // 不正な位置なら何もしない(先頭へジャンプさせない)
+    const refs = pageRefs[pos.page];
+    if(!refs) return;
+
+    const localTop = pos.y * cellH * zoom;
+    const localRight = pos.col * cellW * zoom;
+    const rect = refs.contentEl.getBoundingClientRect();
+    const left = rect.right - localRight - cellW * zoom;
+    const top = rect.top + localTop;
+
+    caretBar.style.left = left + 'px';
+    caretBar.style.top = top + 'px';
+    caretBar.style.width = (cellW * zoom) + 'px';
+    // 位置が変わるたびに点滅を「表示されている」状態からやり直す
+    // (アニメーションを一度外して強制的に再描画させてから、また適用し直す)
+    caretBar.style.animation = 'none';
+    void caretBar.offsetWidth;
+    caretBar.style.animation = '';
+
+    hiddenInput.style.left = left + 'px';
+    hiddenInput.style.top = top + 'px';
+    hiddenInput.style.width = (cellW * zoom) + 'px';
+    hiddenInput.style.height = (cellH * zoom) + 'px';
+  }
+
+  function relayoutAndRender(){
+    recomputeGeometry();
+    render();
+  }
+
+  // ---------- 漢字注釈パネル ----------
+  let annoPanelEl = null;
+  let pickerEl = null;
+
+  function closePicker(){
+    if(pickerEl){ pickerEl.remove(); pickerEl = null; }
+  }
+
+  function closeAnnotationPanel(){
+    if(annoPanelEl){ annoPanelEl.remove(); annoPanelEl = null; }
+    closePicker();
+  }
+
+  function showPicker(referenceRect, buttons){
+    closePicker();
+    const picker = document.createElement('div');
+    picker.className = 'kunten-picker';
+
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'picker-close';
+    closeBtn.textContent = '×';
+    closeBtn.addEventListener('click', (e) => { e.stopPropagation(); closePicker(); });
+    picker.appendChild(closeBtn);
+
+    const grid = document.createElement('div');
+    grid.className = 'picker-grid';
+    buttons.forEach(({ label, onClick }) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      if(KUNTEN_COMBOS[label]){
+        b.style.writingMode = 'vertical-rl';
+        b.style.display = 'flex';
+        b.style.alignItems = 'center';
+        b.style.justifyContent = 'center';
+        renderKuntenContent(b, label, 1);
+      } else {
+        b.textContent = label;
+      }
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
+        onClick();
+        closePicker();
+      });
+      grid.appendChild(b);
+    });
+    picker.appendChild(grid);
+
+    document.body.appendChild(picker);
+    const pr = picker.getBoundingClientRect();
+    let left = referenceRect.left;
+    let top = referenceRect.bottom + 6;
+    if(left + pr.width > window.innerWidth) left = window.innerWidth - pr.width - 4;
+    if(top + pr.height > window.innerHeight) top = referenceRect.top - pr.height - 6;
+    picker.style.left = Math.max(4, left) + 'px';
+    picker.style.top = Math.max(4, top) + 'px';
+    pickerEl = picker;
+  }
+
+  function openAnnotationPanel(kanjiIdx, cellRect){
+    closeAnnotationPanel();
+    const anno = getAnno(kanjiIdx);
+
+    const panel = document.createElement('div');
+    panel.className = 'anno-panel';
+
+    // 熟字訓が付いている字では、右側には熟字訓の読みが出るので、振り仮名・送り仮名は表示しない。
+    // 訓点・上下記号・左振り仮名・左送り仮名は、ほかの字と同じように使える
+    const jkOfThis = jukujikunSpans.find(sp => kanjiIdx >= sp.start && kanjiIdx < sp.end);
+    if(jkOfThis){
+      const note = document.createElement('div');
+      note.className = 'anno-note';
+      note.textContent = '熟字訓「' + jkOfThis.text + '」が付いているため、振り仮名・送り仮名は表示されません。そのほかは使えます。';
+      panel.appendChild(note);
+    }
+
+    const fields = [
+      ['furi',   '振り仮名'],
+      ['okuri',  '送り仮名'],
+      ['kunten', '訓点'],
+      ['kami',   '上記号'],
+      ['shimo',  '下記号'],
+      ['hFuri',  '左振り仮名'],
+      ['hOkuri', '左送り仮名'],
+    ];
+
+    fields.forEach(([key, label]) => {
+      const row = document.createElement('div');
+      row.className = 'anno-row';
+
+      const labelEl = document.createElement('div');
+      labelEl.className = 'anno-label';
+      labelEl.textContent = label;
+      row.appendChild(labelEl);
+
+      const wrap = document.createElement('div');
+      wrap.className = 'anno-input-wrap';
+
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'anno-input';
+      input.value = anno[key] || '';
+      if(jkOfThis && (key === 'furi' || key === 'okuri')){
+        input.disabled = true;
+        input.title = '熟字訓が付いている字には表示されません';
+      }
+      if(key === 'kunten'){
+        // 直接入力はさせないが、Backspace/Deleteでのクリアだけは許可する
+        input.addEventListener('keydown', (e) => {
+          if(e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Tab' || e.key === 'Enter') return;
+          if(e.key.length === 1 || e.key === 'Process') e.preventDefault();
+        });
+      }
+      input.addEventListener('input', () => {
+        pushUndo(false, 'panel:' + key);
+        let v = input.value;
+        if(key === 'okuri' || key === 'hOkuri'){
+          v = hiraToKata(v);
+        }
+        if(key === 'kami'){
+          v = v.slice(0, 1); // 上記号は1文字まで
+        }
+        if(key === 'shimo'){
+          // 下記号は1文字まで。ただし「句読点・！？：;など+閉じ括弧」の組み合わせだけ2文字まで許可
+          const isPunctBracketPair = v.length === 2 && SHIMO_BEFORE_BRACKET.has(v[0]) && CLOSE_BRACKETS.has(v[1]);
+          if(v.length > 1 && !isPunctBracketPair) v = v.slice(-1);
+        }
+        input.value = v;
+        anno[key] = v;
+        render();
+      });
+
+      // Enterキーでピッカーが開いていれば閉じる
+      input.addEventListener('keydown', (e) => {
+        if(e.key === 'Enter' && pickerEl){
+          e.preventDefault();
+          closePicker();
+        }
+      });
+
+      // 訓点:入力欄を押すとプリセット(レ点など)を選ぶボタンが出る(直接入力は不可)
+      if(key === 'kunten'){
+        input.addEventListener('focus', () => {
+          showPicker(wrap.getBoundingClientRect(), KUNTEN_PRESETS.map(mark => ({
+            label: mark,
+            onClick: () => { pushUndo(true, 'panel:kunten'); input.value = mark; anno.kunten = mark; render(); }
+          })));
+        });
+      }
+      // 送り仮名:クリックで「〻」(二の字点)ボタンを出す
+      if(key === 'okuri'){
+        input.addEventListener('focus', () => {
+          showPicker(wrap.getBoundingClientRect(), [{
+            label: '〻',
+            onClick: () => {
+              pushUndo(true, 'panel:okuri');
+              input.value = hiraToKata(input.value + '〻');
+              anno.okuri = input.value;
+              render();
+            }
+          }]);
+        });
+      }
+
+      wrap.appendChild(input);
+      row.appendChild(wrap);
+      panel.appendChild(row);
+    });
+
+    document.body.appendChild(panel);
+    const pr = panel.getBoundingClientRect();
+    let left = cellRect.right + 8;
+    if(left + pr.width > window.innerWidth) left = cellRect.left - pr.width - 8;
+    let top = cellRect.top;
+    if(top + pr.height > window.innerHeight) top = window.innerHeight - pr.height - 8;
+    panel.style.left = Math.max(4, left) + 'px';
+    panel.style.top = Math.max(4, top) + 'px';
+
+    annoPanelEl = panel;
+  }
+
+  document.addEventListener('click', (e) => {
+    const inPicker = pickerEl && pickerEl.contains(e.target);
+    const inPanel = annoPanelEl && annoPanelEl.contains(e.target);
+    if(pickerEl && !inPicker && !inPanel) closePicker();
+    if(annoPanelEl && !inPanel && !inPicker) closeAnnotationPanel();
+  });
+
+  // ---------- 右クリック(Macの2本指タップ含む)のコンテキストメニュー ----------
+  const contextMenuEl = document.createElement('div');
+  contextMenuEl.className = 'context-menu';
+  document.body.appendChild(contextMenuEl);
+
+  function hideContextMenu(){
+    contextMenuEl.style.display = 'none';
+    contextMenuEl.innerHTML = '';
+  }
+
+  function addMenuItem(label, onClick, shortcut){
+    const item = document.createElement('div');
+    item.className = 'context-menu-item';
+    const labelSpan = document.createElement('span');
+    labelSpan.textContent = label;
+    item.appendChild(labelSpan);
+    if(shortcut){
+      const kbd = document.createElement('span');
+      kbd.className = 'context-menu-shortcut';
+      kbd.textContent = shortcut;
+      item.appendChild(kbd);
+    }
+    item.addEventListener('click', (e) => {
+      e.stopPropagation(); // 背景まで伝播して、開いた直後のパネルを閉じてしまうのを防ぐ
+      hideContextMenu();
+      closeAnnotationPanel(); // 本文が変わる操作もあるため、開いている注釈パネルも閉じる(熟字訓の入力は自前で開き直す)
+      onClick();
+    });
+    contextMenuEl.appendChild(item);
+  }
+
+  function addMenuSep(){
+    const sep = document.createElement('div');
+    sep.className = 'context-menu-sep';
+    contextMenuEl.appendChild(sep);
+  }
+
+  function rectsOverlap(a, b){
+    return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+  }
+
+  function showContextMenu(clientX, clientY, kanjiEl){
+    contextMenuEl.innerHTML = '';
+    // 選んでいる範囲の外の漢字を右クリックしたときは、Word と同じく選択を外して、その漢字を対象にする
+    if(kanjiEl){
+      const ki = Number(kanjiEl.getAttribute('data-idx'));
+      const ss = hiddenInput.selectionStart, se = hiddenInput.selectionEnd;
+      if(se > ss && (ki < ss || ki >= se)){ hiddenInput.setSelectionRange(ki, ki); updateCaretVisual(); }
+    }
+    const s = hiddenInput.selectionStart, e = hiddenInput.selectionEnd;
+    const selLen = countChars(hiddenInput.value.slice(s, e));
+
+    // 漢字の上で右クリックしたときは、メニューと同時にその漢字の注釈パネル(振り仮名・送り仮名など)を
+    // 漢字のすぐ脇に開く。ただし複数文字を選択している場合は(熟字訓の入力などが目的のため)開かない。
+    closeAnnotationPanel();
+    let panelRect = null;
+    if(kanjiEl && selLen <= 1){
+      openAnnotationPanel(Number(kanjiEl.getAttribute('data-idx')), kanjiEl.getBoundingClientRect());
+      if(annoPanelEl) panelRect = annoPanelEl.getBoundingClientRect();
+    }
+
+    addMenuItem('コピー', () => {
+      hiddenInput.focus();
+      hiddenInput.setSelectionRange(s, e);
+      try{ document.execCommand('copy'); } catch(err){ /* noop */ }
+    }, 'Ctrl+C');
+    addMenuItem('切り取り', () => {
+      hiddenInput.focus();
+      hiddenInput.setSelectionRange(s, e);
+      pushUndo(true, 'main:cut');
+      try{ document.execCommand('cut'); } catch(err){ /* noop */ }
+      handleInput();
+    }, 'Ctrl+X');
+    addMenuItem('ペースト', async () => {
+      hiddenInput.focus();
+      hiddenInput.setSelectionRange(s, e);
+      try{
+        const clip = await navigator.clipboard.readText();
+        pushUndo(true, 'main:paste');
+        const ns = hiddenInput.selectionStart, ne = hiddenInput.selectionEnd;
+        const cur = hiddenInput.value;
+        hiddenInput.value = cur.slice(0, ns) + clip + cur.slice(ne);
+        hiddenInput.setSelectionRange(ns + clip.length, ns + clip.length);
+        handleInput();
+      } catch(err){
+        try{ document.execCommand('paste'); } catch(err2){ /* noop */ }
+      }
+    }, 'Ctrl+V');
+
+    addMenuSep();
+    addMenuItem('選択した範囲の記号を上下記号にする', () => {
+      hiddenInput.focus();
+      hiddenInput.setSelectionRange(s, e);
+      convertSelectionToAnnotation();
+    }, 'Ctrl+Shift+K');
+    addMenuItem('選択した範囲の上下記号を記号に戻す', () => {
+      hiddenInput.focus();
+      hiddenInput.setSelectionRange(s, e);
+      releaseSelectionAnnotations();
+    }, 'Ctrl+Shift+O');
+
+    if(selLen >= 1){
+      const jc = jitaiCandidates(hiddenInput.value.slice(s, e));
+      if(jc.toShin || jc.toKyu || jc.multiOld){
+        addMenuSep();
+        if(jc.toShin){
+          addMenuItem('新字体に変換', () => { hiddenInput.focus(); hiddenInput.setSelectionRange(s, e); runJitaiConversion('shin', null); });
+        }
+        if(jc.toKyu){
+          addMenuItem('旧字体に変換', () => { hiddenInput.focus(); hiddenInput.setSelectionRange(s, e); runJitaiConversion('kyu', null); });
+        }
+        if(jc.multiOld){
+          jc.multiOld.forEach(o => addMenuItem('旧字体に変換(' + o + ')', () => { hiddenInput.focus(); hiddenInput.setSelectionRange(s, e); runJitaiConversion('kyu', o); }));
+        }
+      }
+    }
+
+    if(selLen >= 2){
+      addMenuSep();
+      addMenuItem('熟字訓を入力', () => {
+        openJukujikunPanel(s, e, clientX, clientY);
+      });
+    }
+
+    contextMenuEl.style.display = 'block';
+    const rect = contextMenuEl.getBoundingClientRect();
+    const mw = rect.width, mh = rect.height;
+    const place = (l, t) => ({
+      left: Math.max(4, Math.min(l, window.innerWidth - mw - 4)),
+      top: Math.max(4, Math.min(t, window.innerHeight - mh - 4)),
+    });
+    // まずクリックした位置を試し、注釈パネルと重なる場合は、パネルの下・上・右・左の順に試す
+    const candidates = [place(clientX, clientY)];
+    if(panelRect){
+      candidates.push(place(panelRect.left, panelRect.bottom + 8));
+      candidates.push(place(panelRect.left, panelRect.top - mh - 8));
+      candidates.push(place(panelRect.right + 8, panelRect.top));
+      candidates.push(place(panelRect.left - mw - 8, panelRect.top));
+    }
+    let chosen = candidates[0];
+    if(panelRect){
+      chosen = candidates.find(p2 => !rectsOverlap(
+        { left: p2.left, top: p2.top, right: p2.left + mw, bottom: p2.top + mh }, panelRect
+      )) || candidates[1];
+    }
+    contextMenuEl.style.left = chosen.left + 'px';
+    contextMenuEl.style.top = chosen.top + 'px';
+  }
+
+  document.addEventListener('contextmenu', (e) => {
+    if(!workspace.contains(e.target)) return;
+    e.preventDefault();
+    // 右クリックされた位置に漢字のマスがあれば、そのマスを特定する
+    let kanjiEl = null;
+    let n = e.target;
+    while(n && n !== workspace){
+      if(n.classList && n.classList.contains('is-kanji') && n.getAttribute('data-idx') !== null && n.getAttribute('data-idx') !== undefined){
+        kanjiEl = n;
+        break;
+      }
+      n = n.parentNode;
+    }
+    showContextMenu(e.clientX, e.clientY, kanjiEl);
+  });
+  document.addEventListener('click', (e) => {
+    if(contextMenuEl.style.display === 'block' && !contextMenuEl.contains(e.target)) hideContextMenu();
+  });
+  document.addEventListener('scroll', hideContextMenu, true);
+
+  // ---------- 熟字訓ルビ入力パネル ----------
+  function openJukujikunPanel(start, end, clientX, clientY){
+    closeAnnotationPanel();
+    const panel = document.createElement('div');
+    panel.className = 'anno-panel';
+
+    const row = document.createElement('div');
+    row.className = 'anno-row';
+    const labelEl = document.createElement('div');
+    labelEl.className = 'anno-label';
+    labelEl.textContent = '熟字訓ルビ';
+    row.appendChild(labelEl);
+
+    const wrap = document.createElement('div');
+    wrap.className = 'anno-input-wrap';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'anno-input';
+    const existing = jukujikunSpans.find(sp => sp.start === start && sp.end === end);
+    input.value = existing ? existing.text : '';
+    wrap.appendChild(input);
+    row.appendChild(wrap);
+    panel.appendChild(row);
+
+    const btnRow = document.createElement('div');
+    btnRow.className = 'anno-row';
+    const okBtn = document.createElement('button');
+    okBtn.type = 'button';
+    okBtn.className = 'btn';
+    okBtn.style.color = '#3a362c';
+    okBtn.style.borderColor = '#cfc7b4';
+    okBtn.textContent = '設定する';
+    function confirmJukujikun(){
+      pushUndo(true, 'main:jukujikun');
+      // 重なる既存の熟字訓スパンは置き換える
+      jukujikunSpans = jukujikunSpans.filter(sp => !(sp.start < end && sp.end > start));
+      if(input.value){
+        jukujikunSpans.push({ start, end, text: input.value });
+      }
+      closeAnnotationPanel();
+      hiddenInput.setSelectionRange(end, end); // 選択を外し、続けて1字ずつ右クリックで編集できるようにする
+      render();
+    }
+    okBtn.addEventListener('click', confirmJukujikun);
+    btnRow.appendChild(okBtn);
+    panel.appendChild(btnRow);
+
+    // 入力し終えてEnterを押したら、ボタンを押したときと同様に確定して自然に閉じる
+    input.addEventListener('keydown', (e) => {
+      if(e.key === 'Enter' && !e.isComposing && e.keyCode !== 229){
+        e.preventDefault();
+        confirmJukujikun();
+      }
+    });
+
+    document.body.appendChild(panel);
+    const pr = panel.getBoundingClientRect();
+    let left = clientX, top = clientY;
+    if(left + pr.width > window.innerWidth) left = window.innerWidth - pr.width - 8;
+    if(top + pr.height > window.innerHeight) top = window.innerHeight - pr.height - 8;
+    panel.style.left = Math.max(4, left) + 'px';
+    panel.style.top = Math.max(4, top) + 'px';
+    annoPanelEl = panel;
+    input.focus();
+  }
+
+  // ---------- 印刷・PDF ----------
+  document.getElementById('btn-print').addEventListener('click', () => {
+    window.print();
+    hiddenInput.focus();
+  });
+  document.getElementById('btn-pdf').addEventListener('click', () => {
+    alert('印刷ダイアログが開きます。送り先(プリンター)の一覧から「PDFに保存」を選んでください。');
+    window.print();
+    hiddenInput.focus();
+  });
+
+  // ---------- 独自Undo/Redo ----------
+  // 本文への自動振り替え(禁則・上下記号)が本文とは別に注釈データも書き換えるため、
+  // ブラウザ標準のUndo履歴だけでは食い違いが起きる。そこで「本文+注釈」をまとめて
+  // 1つの状態としてスナップショットし、Ctrl+Z/Ctrl+Yはすべて自前で処理する。
+  const UNDO_LIMIT = 300;
+  const COALESCE_MS = 600;
+  let undoStack = [];
+  let redoStack = [];
+  let lastPushTime = 0;
+  let lastEditSource = null;
+  let composing = false;
+
+  function cloneAnnotations(map){
+    const copy = new Map();
+    map.forEach((v, k) => copy.set(k, Object.assign({}, v)));
+    return copy;
+  }
+
+  function snapshotState(){
+    return {
+      text: hiddenInput.value,
+      annotations: cloneAnnotations(annotations),
+      jukujikunSpans: jukujikunSpans.map(sp => ({ start: sp.start, end: sp.end, text: sp.text })),
+      gaiji: [...gaiji.entries()],
+      selStart: hiddenInput.selectionStart,
+      selEnd: hiddenInput.selectionEnd,
+      settings: {
+        fontSize: state.fontSize,
+        lineSpacing: state.lineSpacing,
+        charSpacing: state.charSpacing,
+        margin: state.margin,
+        annoScalePercent: state.annoScalePercent,
+        kanjiWeight: state.kanjiWeight,
+        jukujikunCharSpacing: state.jukujikunCharSpacing,
+        pageNumberFormat: state.pageNumberFormat,
+      },
+      annoOffsets: JSON.parse(JSON.stringify(ANNO_OFFSETS)),
+    };
+  }
+
+  function pushUndo(forceBoundary, source){
+    const now = Date.now();
+    const sameSource = source === undefined || source === lastEditSource;
+    if(!forceBoundary && sameSource && undoStack.length > 0 && (now - lastPushTime) < COALESCE_MS){
+      lastPushTime = now;
+      return;
+    }
+    undoStack.push(snapshotState());
+    if(undoStack.length > UNDO_LIMIT) undoStack.shift();
+    redoStack.length = 0;
+    lastPushTime = now;
+    lastEditSource = source;
+  }
+
+  function applyState(snap){
+    closeAnnotationPanel();
+    hiddenInput.value = snap.text;
+    annotations = cloneAnnotations(snap.annotations);
+    jukujikunSpans = (snap.jukujikunSpans || []).map(sp => ({ start: sp.start, end: sp.end, text: sp.text }));
+    gaiji = new Map(snap.gaiji || []);
+    if(snap.settings) Object.assign(state, snap.settings);
+    if(snap.annoOffsets){
+      Object.keys(ANNO_OFFSETS).forEach(key => {
+        if(snap.annoOffsets[key]){
+          ANNO_OFFSETS[key].x = snap.annoOffsets[key].x;
+          ANNO_OFFSETS[key].y = snap.annoOffsets[key].y;
+        }
+      });
+    }
+    prevText = snap.text;
+    recomputeGeometry();
+    syncSlidersFromState();
+    render();
+    hiddenInput.setSelectionRange(snap.selStart, snap.selEnd);
+    hiddenInput.focus();
+    updateCaretVisual();
+  }
+
+  function undo(){
+    if(undoStack.length === 0) return;
+    const cur = snapshotState();
+    const prev = undoStack.pop();
+    redoStack.push(cur);
+    applyState(prev);
+    lastPushTime = 0; lastEditSource = null;
+  }
+
+  function redo(){
+    if(redoStack.length === 0) return;
+    const cur = snapshotState();
+    const next = redoStack.pop();
+    undoStack.push(cur);
+    applyState(next);
+    lastPushTime = 0; lastEditSource = null;
+  }
+
+  // ---------- ファイルの保存・読み込み ----------
+  function exportDocument(){
+    const data = {
+      version: 1,
+      text: hiddenInput.value,
+      annotations: [...annotations.entries()],
+      jukujikunSpans: jukujikunSpans.map(sp => ({ start: sp.start, end: sp.end, text: sp.text })),
+      gaiji: [...gaiji.entries()],
+      state: {
+        fontSize: state.fontSize,
+        lineSpacing: state.lineSpacing,
+        charSpacing: state.charSpacing,
+        margin: state.margin,
+        annoScalePercent: state.annoScalePercent,
+        kanjiWeight: state.kanjiWeight,
+        jukujikunCharSpacing: state.jukujikunCharSpacing,
+        pageNumberFormat: state.pageNumberFormat,
+      },
+      annoOffsets: ANNO_OFFSETS,
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = '縦書き文書.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function syncSlidersFromState(){
+    document.getElementById('ctl-font').value = state.fontSize;
+    document.getElementById('ctl-line').value = state.lineSpacing;
+    document.getElementById('ctl-char').value = state.charSpacing;
+    document.getElementById('ctl-margin').value = state.margin;
+    document.getElementById('ctl-annoscale').value = state.annoScalePercent;
+    document.getElementById('ctl-kanjiweight').value = state.kanjiWeight;
+    document.getElementById('ctl-jukujikungap').value = state.jukujikunCharSpacing;
+    syncAnnoSlidersFromOffsets();
+  }
+
+  function importDocumentFile(file){
+    const reader = new FileReader();
+    reader.onload = () => {
+      try{
+        const data = JSON.parse(reader.result);
+        pushUndo(true, 'main:import');
+        hiddenInput.value = typeof data.text === 'string' ? data.text : '';
+        annotations = new Map((data.annotations || []).map(([k, v]) => [Number(k), v]));
+        jukujikunSpans = (data.jukujikunSpans || []).map(sp => ({ start: sp.start, end: sp.end, text: sp.text }));
+        // 外字の字形は画像として表示するだけなので、SVG以外の中身は受け付けない
+        gaiji = new Map((data.gaiji || []).filter(([k, v]) => typeof k === 'string' && v && typeof v.svg === 'string' && /^\s*<svg[\s>]/.test(v.svg)));
+        if(data.state){
+          Object.assign(state, data.state);
+        }
+        if(data.annoOffsets){
+          Object.keys(ANNO_OFFSETS).forEach(key => {
+            if(data.annoOffsets[key]){
+              ANNO_OFFSETS[key].x = data.annoOffsets[key].x;
+              ANNO_OFFSETS[key].y = data.annoOffsets[key].y;
+            }
+          });
+        }
+        prevText = hiddenInput.value;
+        recomputeGeometry();
+        syncSlidersFromState();
+        render();
+        hiddenInput.setSelectionRange(0, 0);
+        hiddenInput.focus();
+      } catch(err){
+        alert('ファイルの読み込みに失敗しました。正しい保存ファイルか確認してください。');
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  document.getElementById('btn-save').addEventListener('click', () => {
+    exportDocument();
+    hiddenInput.focus();
+  });
+  document.getElementById('btn-open').addEventListener('click', () => {
+    document.getElementById('file-open').click();
+  });
+  document.getElementById('file-open').addEventListener('change', (e) => {
+    const file = e.target.files && e.target.files[0];
+    if(file) importDocumentFile(file);
+    e.target.value = '';
+  });
+
+  // Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y(Macは⌘)を、フォーカス位置によらず必ずこちらで処理する
+  document.addEventListener('keydown', (e) => {
+    if(!(e.ctrlKey || e.metaKey) || e.altKey) return;
+    const k = e.key.toLowerCase();
+    const inIdsWindow = idsWin && idsWin.contains(e.target);
+    if(inIdsWindow && (k === 'z' || k === 'y')) return; // 検索欄の文字の取り消しは、その欄の標準動作に任せる
+    if(k === 'z' && !e.shiftKey){ e.preventDefault(); undo(); }
+    else if((k === 'z' && e.shiftKey) || k === 'y'){ e.preventDefault(); redo(); }
+    else if(k === 's'){ e.preventDefault(); exportDocument(); }
+    else if(k === 'k' && e.shiftKey){ e.preventDefault(); convertSelectionToAnnotation(); }
+    else if(k === 'o' && e.shiftKey){ e.preventDefault(); releaseSelectionAnnotations(); }
+  }, true);
+
+  // ---------- イベント ----------
+  let prevText = hiddenInput.value;
+
+  hiddenInput.addEventListener('compositionstart', () => {
+    composing = true;
+    pushUndo(true, 'main:composition');
+  });
+  hiddenInput.addEventListener('compositionend', () => { composing = false; });
+
+  hiddenInput.addEventListener('beforeinput', (e) => {
+    if(composing) return;
+    if(e.inputType === 'insertFromPaste') return;
+    pushUndo(false, 'main:' + e.inputType);
+  });
+  hiddenInput.addEventListener('paste', () => { pushUndo(true, 'main:paste'); });
+
+  function handleInput(){
+    const newText = hiddenInput.value;
+    if(newText !== prevText){
+      remapAnnotationsOnEdit(prevText, newText);
+      prevText = newText;
+    }
+    render();
+  }
+  hiddenInput.addEventListener('input', handleInput);
+  hiddenInput.addEventListener('focus', updateCaretVisual);
+  hiddenInput.addEventListener('click', updateCaretVisual);
+  hiddenInput.addEventListener('select', updateCaretVisual);
+
+  let shiftAnchor = null;
+
+  hiddenInput.addEventListener('keydown', (e) => {
+    const s = hiddenInput.selectionStart;
+    const eSel = hiddenInput.selectionEnd;
+    const text = hiddenInput.value;
+
+    // 全選択
+    if((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a'){
+      e.preventDefault();
+      shiftAnchor = null;
+      hiddenInput.setSelectionRange(0, text.length);
+      updateCaretVisual();
+      return;
+    }
+
+    if(e.key === 'Backspace' && s === eSel && s > 0){
+      if(handleSpecialDelete(prevCharIdx(text, s))){ e.preventDefault(); return; }
+    }
+    if(e.key === 'Delete' && s === eSel && s < text.length){
+      if(handleSpecialDelete(s)){ e.preventDefault(); return; }
+    }
+
+    const isArrow = e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'ArrowLeft' || e.key === 'ArrowRight';
+    if(isArrow){
+      e.preventDefault();
+      let movingPos;
+      if(e.shiftKey){
+        if(shiftAnchor === null){
+          shiftAnchor = (s === eSel) ? s : (hiddenInput.selectionDirection === 'backward' ? eSel : s);
+        }
+        movingPos = (s === eSel) ? s : (hiddenInput.selectionDirection === 'backward' ? s : eSel);
+      } else {
+        shiftAnchor = null;
+        movingPos = s;
+        if(s !== eSel){
+          // 選択がある状態で矢印キー単独:一般的な挙動として選択の端に収束させる
+          movingPos = (e.key === 'ArrowUp' || e.key === 'ArrowLeft') ? s : eSel;
+        }
+      }
+
+      let target = null;
+      if(e.key === 'ArrowDown'){ target = nextCharIdx(text, movingPos); }
+      else if(e.key === 'ArrowUp'){ target = prevCharIdx(text, movingPos); }
+      else if(e.key === 'ArrowLeft'){ target = moveByColumn(movingPos, +1); }
+      else if(e.key === 'ArrowRight'){ target = moveByColumn(movingPos, -1); }
+      if(target === null) return;
+
+      if(e.shiftKey){
+        const start = Math.min(shiftAnchor, target);
+        const end = Math.max(shiftAnchor, target);
+        const direction = target >= shiftAnchor ? 'forward' : 'backward';
+        hiddenInput.setSelectionRange(start, end, direction);
+      } else {
+        hiddenInput.setSelectionRange(target, target);
+      }
+      updateCaretVisual();
+    }
+  });
+
+  function bindSlider(id, key){
+    const input = document.getElementById(id);
+    input.addEventListener('input', () => {
+      const n = Number(input.value);
+      if(Number.isNaN(n)) return;
+      pushUndo(false, 'slider:' + key);
+      state[key] = n;
+      relayoutAndRender();
+    });
+  }
+  bindSlider('ctl-font',   'fontSize');
+  bindSlider('ctl-line',   'lineSpacing');
+  bindSlider('ctl-char',   'charSpacing');
+  bindSlider('ctl-margin', 'margin');
+  bindSlider('ctl-annoscale', 'annoScalePercent');
+  bindSlider('ctl-kanjiweight', 'kanjiWeight');
+  bindSlider('ctl-jukujikungap', 'jukujikunCharSpacing');
+
+  // ---------- 注釈ごとの位置調整スライダー(px)を動的に生成する ----------
+  const ANNO_SLIDER_SPECS = [
+    { key: 'furi',   label: '振り仮名' },
+    { key: 'okuri',  label: '送り仮名' },
+    { key: 'kunten', label: '訓点' },
+    { key: 'kami',   label: '上記号' },
+    { key: 'shimo',  label: '下記号' },
+    { key: 'hFuri',  label: '左振り仮名' },
+    { key: 'hOkuri', label: '左送り仮名' },
+  ];
+
+  function buildAnnoSliders(){
+    const container = document.getElementById('anno-sliders');
+    container.innerHTML = '';
+    ANNO_SLIDER_SPECS.forEach(({ key, label }) => {
+      const group = document.createElement('div');
+      group.className = 'anno-slider-group';
+
+      const groupLabel = document.createElement('div');
+      groupLabel.className = 'group-label';
+      groupLabel.textContent = label;
+      group.appendChild(groupLabel);
+
+      ['x', 'y'].forEach(axis => {
+        const row = document.createElement('div');
+        row.className = 'anno-slider-row';
+        const lab = document.createElement('label');
+        lab.textContent = axis === 'x' ? '横' : '縦';
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.step = '1';
+        input.value = ANNO_OFFSETS[key][axis];
+        input.addEventListener('input', () => {
+          const n = Number(input.value);
+          if(Number.isNaN(n)) return;
+          pushUndo(false, 'annoSlider:' + key + axis);
+          ANNO_OFFSETS[key][axis] = n;
+          render();
+        });
+        const unit = document.createElement('span');
+        unit.className = 'val';
+        unit.textContent = 'px';
+        row.appendChild(lab);
+        row.appendChild(input);
+        row.appendChild(unit);
+        group.appendChild(row);
+      });
+
+      container.appendChild(group);
+    });
+  }
+  buildAnnoSliders();
+
+  function syncAnnoSlidersFromOffsets(){
+    buildAnnoSliders();
+  }
+
+  // ---------- 検索・置換 ----------
+  function findAndReplace(searchStr, replaceStr){
+    if(!searchStr) return 0;
+    const oldText = hiddenInput.value;
+    let newText = '';
+    let count = 0;
+    const indexMap = new Map(); // 旧インデックス → 新インデックス(対応する開始位置)
+    let i = 0;
+    while(i < oldText.length){
+      if(oldText.startsWith(searchStr, i)){
+        for(let k = 0; k < searchStr.length; k++){
+          indexMap.set(i + k, newText.length);
+        }
+        newText += replaceStr;
+        i += searchStr.length;
+        count++;
+      } else {
+        indexMap.set(i, newText.length);
+        newText += oldText[i];
+        i++;
+      }
+    }
+    indexMap.set(oldText.length, newText.length);
+
+    // 注釈欄の中に置換対象があるかどうかは、この時点ではまだ判定するだけで書き換えない
+    // (Undoのスナップショットを、変更前の状態のまま先に記録する必要があるため)
+    let fieldCount = 0;
+    annotations.forEach((anno) => {
+      ['furi', 'okuri', 'kunten', 'kami', 'shimo', 'hFuri', 'hOkuri'].forEach(key => {
+        if(anno[key] && anno[key].indexOf(searchStr) !== -1) fieldCount++;
+      });
+    });
+
+    if(count === 0 && fieldCount === 0) return 0;
+
+    pushUndo(true, 'main:replace');
+
+    // Undoの記録が済んでから、実際に注釈欄の中身を書き換える
+    annotations.forEach((anno) => {
+      ['furi', 'okuri', 'kunten', 'kami', 'shimo', 'hFuri', 'hOkuri'].forEach(key => {
+        if(anno[key] && anno[key].indexOf(searchStr) !== -1){
+          anno[key] = anno[key].split(searchStr).join(replaceStr);
+        }
+      });
+    });
+
+    if(count > 0){
+      const nextAnno = new Map();
+      annotations.forEach((data, idx) => {
+        const mapped = indexMap.get(idx);
+        if(mapped !== undefined) nextAnno.set(mapped, data);
+        // マッピングが無い(置換された範囲の内部だった)場合は破棄される
+      });
+      annotations = nextAnno;
+      hiddenInput.value = newText;
+      prevText = newText;
+      hiddenInput.setSelectionRange(0, 0);
+    }
+
+    render();
+    return count + fieldCount;
+  }
+
+  document.getElementById('btn-replace').addEventListener('click', () => {
+    const searchStr = document.getElementById('search-text').value;
+    const replaceStr = document.getElementById('replace-text').value;
+    if(!searchStr){
+      alert('検索する文字列を入力してください。');
+      return;
+    }
+    const total = findAndReplace(searchStr, replaceStr);
+    if(total === 0){
+      alert('一致する文字列が見つかりませんでした(本文・振り仮名などの注釈のいずれにもありません)。');
+    }
+    hiddenInput.focus();
+  });
+
+  // 表示倍率(ジオメトリは変えず、見た目だけ拡大縮小する)
+  document.getElementById('ctl-zoom').addEventListener('input', (e) => {
+    setZoom(Number(e.target.value) / 100 * ZOOM_BASE); // 見えている部分の中央を基準に拡大縮小する
+  });
+
+  document.getElementById('btn-clear').addEventListener('click', () => {
+    pushUndo(true, 'clear');
+    hiddenInput.value = '';
+    annotations = new Map();
+    jukujikunSpans = [];
+    gaiji = new Map();
+    prevText = '';
+    render();
+    hiddenInput.focus();
+  });
+
+  window.addEventListener('scroll', updateCaretVisual, true);
+  window.addEventListener('resize', updateCaretVisual);
+
+  workspaceScroll.addEventListener('mousedown', (e) => {
+    if(e.button !== 0) return;
+    if(e.target === workspaceScroll || e.target === zoomStage){
+      const end = hiddenInput.value.length;
+      hiddenInput.setSelectionRange(end, end);
+      hiddenInput.focus();
+      updateCaretVisual();
+    }
+  });
+  workspace.addEventListener('mousedown', (e) => {
+    if(e.button !== 0) return;
+    if(e.target === workspace){
+      const end = hiddenInput.value.length;
+      hiddenInput.setSelectionRange(end, end);
+      hiddenInput.focus();
+      updateCaretVisual();
+    }
+  });
+
+
+  // ---------- 漢字検索ウィンドウ(部首・部品による検索) ----------
+  // 検索そのものは ids_core.js(window.IDSCore)に任せる。この部分は画面とエディタへの挿入だけを受け持つ。
+  const idsWin = document.getElementById('ids-window');
+  const idsTitlebar = document.getElementById('ids-titlebar');
+  const idsQuery = document.getElementById('ids-query');
+  const idsResults = document.getElementById('ids-results');
+  const idsPalette = document.getElementById('ids-palette');
+  const idsTabs = document.getElementById('ids-tabs');
+  let idsDictState = 'loading'; // 'loading' | 'ready' | 'failed'
+  const idsBtn = document.getElementById('btn-ids');
+  const IDS_MIN_W = 360, IDS_MIN_H = 420;
+  const idsBox = { left: null, top: null, width: 600, height: 780 };
+  let idsDict = null;
+  let idsActiveTab = 0;
+
+
+  function getIdsCore(){ return (typeof window !== 'undefined' && window.IDSCore) || null; }
+  function getRadicals(){
+    const src = (typeof window !== 'undefined' && window.IDSRadicals) || (typeof self !== 'undefined' && self.IDSRadicals);
+    return src && src.RADICALS ? src.RADICALS : [];
+  }
+
+  function applyIdsBox(){
+    const vw = window.innerWidth, vh = window.innerHeight;
+    idsBox.width = Math.max(IDS_MIN_W, Math.min(idsBox.width, vw - 16));
+    idsBox.height = Math.max(IDS_MIN_H, Math.min(idsBox.height, vh - 16));
+    // タイトルバーが必ず画面内に残るようにする(つかめなくなるのを防ぐ)
+    idsBox.left = Math.max(80 - idsBox.width, Math.min(idsBox.left, vw - 80));
+    idsBox.top = Math.max(0, Math.min(idsBox.top, vh - 40));
+    idsWin.style.left = idsBox.left + 'px';
+    idsWin.style.top = idsBox.top + 'px';
+    idsWin.style.width = idsBox.width + 'px';
+    idsWin.style.height = idsBox.height + 'px';
+  }
+
+  function openIdsWindow(){
+    if(idsBox.left === null){
+      idsBox.width = Math.min(600, window.innerWidth - 16);
+      idsBox.height = Math.min(780, window.innerHeight - 96);
+      idsBox.left = window.innerWidth - idsBox.width - 24;
+      idsBox.top = 76;
+    }
+    idsWin.hidden = false;
+    bringWindowToFront(idsWin);
+    idsBtn.setAttribute('aria-expanded', 'true');
+    applyIdsBox();
+    idsQuery.focus();
+    tryAutoLoadDict();
+  }
+  function closeIdsWindow(){
+    idsWin.hidden = true;
+    idsBtn.setAttribute('aria-expanded', 'false');
+    hiddenInput.focus();
+  }
+
+  idsBtn.addEventListener('click', () => {
+    if(idsWin.hidden) openIdsWindow();
+    else if(!isFrontWindow(idsWin)){ bringWindowToFront(idsWin); idsQuery.focus(); }
+    else closeIdsWindow();
+  });
+  document.getElementById('ids-close').addEventListener('click', closeIdsWindow);
+  idsWin.addEventListener('keydown', (e) => {
+    if(e.key === 'Escape'){ e.preventDefault(); closeIdsWindow(); }
+  });
+  window.addEventListener('resize', () => { if(!idsWin.hidden) applyIdsBox(); });
+
+  // タイトルバーをつかんで移動
+  idsTitlebar.addEventListener('pointerdown', (e) => {
+    if(e.button !== 0 || e.target.closest && e.target.closest('.ids-close')) return;
+    e.preventDefault();
+    const start = { x: e.clientX, y: e.clientY, left: idsBox.left, top: idsBox.top };
+    idsTitlebar.setPointerCapture && idsTitlebar.setPointerCapture(e.pointerId);
+    const move = (ev) => {
+      idsBox.left = start.left + (ev.clientX - start.x);
+      idsBox.top = start.top + (ev.clientY - start.y);
+      applyIdsBox();
+    };
+    const up = () => {
+      idsTitlebar.removeEventListener('pointermove', move);
+      idsTitlebar.removeEventListener('pointerup', up);
+      idsTitlebar.removeEventListener('pointercancel', up);
+    };
+    idsTitlebar.addEventListener('pointermove', move);
+    idsTitlebar.addEventListener('pointerup', up);
+    idsTitlebar.addEventListener('pointercancel', up);
+  });
+
+  // 縁や角をつかんで大きさを変える
+  idsWin.querySelectorAll('.ids-rz').forEach(handle => {
+    handle.addEventListener('pointerdown', (e) => {
+      if(e.button !== 0) return;
+      e.preventDefault();
+      const dir = handle.getAttribute('data-dir');
+      const s0 = { x: e.clientX, y: e.clientY, left: idsBox.left, top: idsBox.top, width: idsBox.width, height: idsBox.height };
+      handle.setPointerCapture && handle.setPointerCapture(e.pointerId);
+      const move = (ev) => {
+        const dx = ev.clientX - s0.x, dy = ev.clientY - s0.y;
+        if(dir.includes('e')) idsBox.width = Math.max(IDS_MIN_W, s0.width + dx);
+        if(dir.includes('s')) idsBox.height = Math.max(IDS_MIN_H, s0.height + dy);
+        if(dir.includes('w')){
+          const w = Math.max(IDS_MIN_W, s0.width - dx);
+          idsBox.left = s0.left + (s0.width - w);
+          idsBox.width = w;
+        }
+        if(dir.includes('n')){
+          const h = Math.max(IDS_MIN_H, s0.height - dy);
+          idsBox.top = s0.top + (s0.height - h);
+          idsBox.height = h;
+        }
+        applyIdsBox();
+      };
+      const up = () => {
+        handle.removeEventListener('pointermove', move);
+        handle.removeEventListener('pointerup', up);
+        handle.removeEventListener('pointercancel', up);
+      };
+      handle.addEventListener('pointermove', move);
+      handle.addEventListener('pointerup', up);
+      handle.addEventListener('pointercancel', up);
+    });
+  });
+
+  // 検索欄のカーソル位置に字を入れる
+  function insertIntoIdsQuery(str){
+    const s = idsQuery.selectionStart != null ? idsQuery.selectionStart : idsQuery.value.length;
+    const e = idsQuery.selectionEnd != null ? idsQuery.selectionEnd : idsQuery.value.length;
+    idsQuery.value = idsQuery.value.slice(0, s) + str + idsQuery.value.slice(e);
+    idsQuery.focus();
+    idsQuery.setSelectionRange(s + str.length, s + str.length);
+    runIdsSearch();
+  }
+
+  function makeIdsKey(ch, extraClass, title){
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'ids-key' + (extraClass ? ' ' + extraClass : '');
+    b.textContent = ch;
+    b.title = title || ('U+' + ch.codePointAt(0).toString(16).toUpperCase());
+    b.addEventListener('click', () => insertIntoIdsQuery(ch));
+    return b;
+  }
+
+
+  function buildIdsTabs(){
+    idsTabs.innerHTML = '';
+    getRadicals().forEach((g, i) => {
+      const t = document.createElement('button');
+      t.type = 'button';
+      t.className = 'ids-tab';
+      t.setAttribute('role', 'tab');
+      t.setAttribute('aria-selected', i === idsActiveTab ? 'true' : 'false');
+      t.textContent = g.label;
+      t.addEventListener('click', () => { idsActiveTab = i; buildIdsTabs(); buildIdsPalette(); });
+      idsTabs.appendChild(t);
+    });
+  }
+
+  function buildIdsPalette(){
+    idsPalette.innerHTML = '';
+    const g = getRadicals()[idsActiveTab];
+    if(!g){
+      const p = document.createElement('p');
+      p.className = 'ids-message';
+      p.textContent = '部首・部品のデータを読み込めませんでした。';
+      idsPalette.appendChild(p);
+      return;
+    }
+    [['部首', g.kangxi, ''], ['部首の変形', g.variants, 'is-variant'], ['部品', g.parts, '']].forEach(([label, chars, cls]) => {
+      const list = Array.from(chars || '');
+      if(!list.length) return;
+      const lab = document.createElement('div');
+      lab.className = 'ids-group-label';
+      lab.textContent = label;
+      idsPalette.appendChild(lab);
+      const keys = document.createElement('div');
+      keys.className = 'ids-keys';
+      list.forEach(ch => keys.appendChild(makeIdsKey(ch, cls)));
+      idsPalette.appendChild(keys);
+    });
+  }
+
+  function showIdsMessage(text){
+    idsResults.innerHTML = '';
+    const p = document.createElement('p');
+    p.className = 'ids-message';
+    p.textContent = text;
+    idsResults.appendChild(p);
+  }
+
+  // 本文のカーソル位置(選択範囲があれば置き換え)に字を入れる。Ctrl+Zで取り消せる
+  function insertIntoEditor(str){
+    const s = hiddenInput.selectionStart, e = hiddenInput.selectionEnd;
+    pushUndo(true, 'main:ids-insert');
+    const v = hiddenInput.value;
+    hiddenInput.value = v.slice(0, s) + str + v.slice(e);
+    hiddenInput.setSelectionRange(s + str.length, s + str.length);
+    handleInput();
+  }
+
+  function makeResultKey(ch){
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'ids-key ids-result-key';
+    b.textContent = ch;
+    b.title = 'U+' + ch.codePointAt(0).toString(16).toUpperCase() + ' を本文に入れる';
+    b.addEventListener('click', () => insertIntoEditor(ch));
+    return b;
+  }
+
+  // 結果は「含んでいた部品の数」ごとにまとめ、多いほうから並べる
+  function showIdsRanked(results, parts){
+    idsResults.innerHTML = '';
+    if(!results.length){
+      showIdsMessage('選んだ部首・部品を含む字は見つかりませんでした。別の部首・部品で試してください。');
+      return;
+    }
+    const total = results[0].total;
+    const groups = new Map();
+    results.forEach(r => { if(!groups.has(r.matched)) groups.set(r.matched, []); groups.get(r.matched).push(r.ch); });
+    Array.from(groups.keys()).sort((a, b) => b - a).forEach(m => {
+      const chars = groups.get(m);
+      const lab = document.createElement('div');
+      lab.className = 'ids-group-label';
+      let text;
+      if(total === 1) text = '「' + parts[0] + '」を含む字';
+      else if(m === total) text = '選んだ' + total + 'つをすべて含む字';
+      else text = '選んだ' + total + 'つのうち' + m + 'つを含む字';
+      lab.textContent = text + '(' + chars.length + '字)';
+      idsResults.appendChild(lab);
+      const keys = document.createElement('div');
+      keys.className = 'ids-keys';
+      chars.forEach(ch => keys.appendChild(makeResultKey(ch)));
+      idsResults.appendChild(keys);
+    });
+  }
+
+  const IDS_RESULT_LIMIT = 600;
+  function runIdsSearch(){
+    const parts = Array.from(idsQuery.value).filter(ch => ch.trim());
+    if(!parts.length && idsDictState === 'failed'){
+      showIdsMessage('辞書が見つからないため、検索できません。data フォルダに ids_data.js が入っているか確認してください。');
+      return;
+    }
+    if(!parts.length){
+      showIdsMessage('探したい字に含まれる部首・部品を選ぶと、それを多く含む字から順に表示します。同じ部品を2回選ぶと「2つ含む」の意味になります。見つかった字を押すと、本文のカーソル位置に入ります。');
+      return;
+    }
+    const core = getIdsCore();
+    if(!core){ showIdsMessage('検索の計算部分(js/ids_core.js)が読み込まれていないため、検索できません。'); return; }
+    if(!idsDict){
+      showIdsMessage(idsDictState === 'failed'
+        ? '辞書が見つからないため、検索できません。data フォルダに ids_data.js が入っているか確認してください。'
+        : '辞書を読み込んでいます。読み込みが終わると、自動で検索します。');
+      return;
+    }
+    showIdsRanked(idsDict.rank(parts, IDS_RESULT_LIMIT), parts);
+  }
+
+  // 入力するたびに検索し直す(日本語入力の変換中は待つ)
+  let idsSearchTimer = null;
+  idsQuery.addEventListener('input', (e) => {
+    if(e.isComposing) return;
+    clearTimeout(idsSearchTimer);
+    idsSearchTimer = setTimeout(runIdsSearch, 150);
+  });
+  idsQuery.addEventListener('compositionend', () => { clearTimeout(idsSearchTimer); idsSearchTimer = setTimeout(runIdsSearch, 150); });
+  idsQuery.addEventListener('keydown', (e) => {
+    if(e.key === 'Enter' && !e.isComposing && e.keyCode !== 229){ e.preventDefault(); clearTimeout(idsSearchTimer); runIdsSearch(); }
+  });
+  document.getElementById('ids-backspace').addEventListener('click', () => {
+    const list = Array.from(idsQuery.value);
+    list.pop();
+    idsQuery.value = list.join('');
+    idsQuery.focus();
+    runIdsSearch();
+  });
+  document.getElementById('ids-clear').addEventListener('click', () => {
+    idsQuery.value = '';
+    idsQuery.focus();
+    runIdsSearch();
+  });
+
+
+
+  // ---------- 辞書の自動読み込み ----------
+  // 1. data/ids_data.js(ids.txt の中身をそのまま包んだファイル)を読む。<script> で読むので、
+  //    index.html をダブルクリックで開いた場合でも読み込める。
+  // 2. それが無ければ data/ids.txt を読む(サイトとして公開した場合はこちらも使える)。
+  // 3. どちらも読めなければ、検索ウィンドウに辞書が見つからないことを表示する。
+  let idsAutoTried = false;
+  function loadIdsDictFromText(text){
+    try{
+      idsDict = getIdsCore().createDict(text);
+    } catch(err){
+      idsDict = null;
+      idsDictLoadFailed();
+      return;
+    }
+    idsDictState = 'ready';
+    afterDictLoaded();
+  }
+  function idsDictLoadFailed(){
+    if(!idsDict){ idsDictState = 'failed'; runIdsSearch(); }
+  }
+  function tryFetchIdsTxt(){
+    if(typeof fetch !== 'function'){ idsDictLoadFailed(); return; }
+    fetch('data/ids.txt')
+      .then(r => { if(!r.ok) throw new Error(String(r.status)); return r.text(); })
+      .then(t => loadIdsDictFromText(t))
+      .catch(idsDictLoadFailed);
+  }
+  function takeEmbeddedIdsText(){
+    const t = window.IDS_TXT;
+    window.IDS_TXT = undefined; // 辞書を作ったら元の文字列は要らないので手放す
+    loadIdsDictFromText(t);
+  }
+  function tryAutoLoadDict(){
+    if(idsAutoTried || idsDict) return;
+    idsAutoTried = true;
+    if(!getIdsCore()){ idsDictState = 'failed'; return; }
+    if(typeof window.IDS_TXT === 'string'){ takeEmbeddedIdsText(); return; }
+    const s = document.createElement('script');
+    s.src = 'data/ids_data.js';
+    s.onload = () => { if(typeof window.IDS_TXT === 'string') takeEmbeddedIdsText(); else tryFetchIdsTxt(); };
+    s.onerror = tryFetchIdsTxt;
+    (document.head || document.body).appendChild(s);
+  }
+
+  function afterDictLoaded(){
+    // 最初の検索で待たされないよう、部品の索引を先に作っておく
+    setTimeout(() => { try{ idsDict.rank(['一'], 1); } catch(err){} runIdsSearch(); }, 0);
+  }
+
+  buildIdsTabs();
+  buildIdsPalette();
+
+
+  // ---------- 字を組み立てる(字体組立を別ウィンドウの中で開く) ----------
+  const cmpWin = document.getElementById('composer-window');
+  const cmpTitlebar = document.getElementById('composer-titlebar');
+  const cmpFrame = document.getElementById('composer-frame');
+  const CMP_MIN_W = 420, CMP_MIN_H = 360;
+  const cmpBox = { left: null, top: null, width: 1200, height: 820 };
+
+  function applyCmpBox(){
+    const vw = window.innerWidth, vh = window.innerHeight;
+    cmpBox.width = Math.max(CMP_MIN_W, Math.min(cmpBox.width, vw - 16));
+    cmpBox.height = Math.max(CMP_MIN_H, Math.min(cmpBox.height, vh - 16));
+    cmpBox.left = Math.max(80 - cmpBox.width, Math.min(cmpBox.left, vw - 80));
+    cmpBox.top = Math.max(0, Math.min(cmpBox.top, vh - 40));
+    cmpWin.style.left = cmpBox.left + 'px';
+    cmpWin.style.top = cmpBox.top + 'px';
+    cmpWin.style.width = cmpBox.width + 'px';
+    cmpWin.style.height = cmpBox.height + 'px';
+  }
+  function openComposer(){
+    if(cmpBox.left === null){
+      cmpBox.width = Math.min(1200, window.innerWidth - 32);
+      cmpBox.height = Math.min(820, window.innerHeight - 96);
+      cmpBox.left = Math.max(16, (window.innerWidth - cmpBox.width) / 2);
+      cmpBox.top = 64;
+    }
+    // 初めて開くときだけ読み込む(閉じても中身は残るので、集めた部品は消えない)
+    if(!cmpFrame.getAttribute('src')) cmpFrame.setAttribute('src', 'kanji-composer.html');
+    cmpWin.hidden = false;
+    bringWindowToFront(cmpWin);
+    cmpBtn.setAttribute('aria-expanded', 'true');
+    applyCmpBox();
+    // 開き直したときも、Delete・Ctrl+C・Ctrl+V などが字体組立に届くよう、中のページに操作を移す
+    // (本文側に残ったままだと、本文の字が消えてしまう)
+    setTimeout(() => { try{ cmpFrame.contentWindow && cmpFrame.contentWindow.focus(); } catch(err){} }, 0);
+  }
+  function closeComposer(){ cmpWin.hidden = true; cmpBtn.setAttribute('aria-expanded', 'false'); hiddenInput.focus(); }
+  const cmpBtn = document.getElementById('btn-composer');
+  cmpBtn.addEventListener('click', () => {
+    if(cmpWin.hidden) openComposer();
+    else if(!isFrontWindow(cmpWin)) bringWindowToFront(cmpWin);
+    else closeComposer();
+  });
+  document.getElementById('composer-close').addEventListener('click', closeComposer);
+  window.addEventListener('resize', () => { if(!cmpWin.hidden) applyCmpBox(); });
+
+  // 移動・大きさの変更中は、中のページ(iframe)がマウスの動きを奪わないよう、一時的に反応を止める
+  cmpTitlebar.addEventListener('pointerdown', (e) => {
+    if(e.button !== 0 || (e.target.closest && e.target.closest('.ids-close'))) return;
+    e.preventDefault();
+    const start = { x: e.clientX, y: e.clientY, left: cmpBox.left, top: cmpBox.top };
+    cmpTitlebar.setPointerCapture && cmpTitlebar.setPointerCapture(e.pointerId);
+    cmpFrame.style.pointerEvents = 'none';
+    const move = (ev) => { cmpBox.left = start.left + (ev.clientX - start.x); cmpBox.top = start.top + (ev.clientY - start.y); applyCmpBox(); };
+    const up = () => {
+      cmpFrame.style.pointerEvents = '';
+      cmpTitlebar.removeEventListener('pointermove', move);
+      cmpTitlebar.removeEventListener('pointerup', up);
+      cmpTitlebar.removeEventListener('pointercancel', up);
+    };
+    cmpTitlebar.addEventListener('pointermove', move);
+    cmpTitlebar.addEventListener('pointerup', up);
+    cmpTitlebar.addEventListener('pointercancel', up);
+  });
+  cmpWin.querySelectorAll('.ids-rz').forEach(handle => {
+    handle.addEventListener('pointerdown', (e) => {
+      if(e.button !== 0) return;
+      e.preventDefault();
+      const dir = handle.getAttribute('data-dir');
+      const s0 = { x: e.clientX, y: e.clientY, left: cmpBox.left, top: cmpBox.top, width: cmpBox.width, height: cmpBox.height };
+      handle.setPointerCapture && handle.setPointerCapture(e.pointerId);
+      cmpFrame.style.pointerEvents = 'none';
+      const move = (ev) => {
+        const dx = ev.clientX - s0.x, dy = ev.clientY - s0.y;
+        if(dir.includes('e')) cmpBox.width = Math.max(CMP_MIN_W, s0.width + dx);
+        if(dir.includes('s')) cmpBox.height = Math.max(CMP_MIN_H, s0.height + dy);
+        if(dir.includes('w')){ const w = Math.max(CMP_MIN_W, s0.width - dx); cmpBox.left = s0.left + (s0.width - w); cmpBox.width = w; }
+        if(dir.includes('n')){ const h = Math.max(CMP_MIN_H, s0.height - dy); cmpBox.top = s0.top + (s0.height - h); cmpBox.height = h; }
+        applyCmpBox();
+      };
+      const up = () => {
+        cmpFrame.style.pointerEvents = '';
+        handle.removeEventListener('pointermove', move);
+        handle.removeEventListener('pointerup', up);
+        handle.removeEventListener('pointercancel', up);
+      };
+      handle.addEventListener('pointermove', move);
+      handle.addEventListener('pointerup', up);
+      handle.addEventListener('pointercancel', up);
+    });
+  });
+
+  // ---------- 漢字検索と字体組立のウィンドウの重なり順 ----------
+  // ふつうのウィンドウと同じく、開いたり触ったりした方を手前に出す。
+  // (右クリックメニューや振り仮名などのパネルは、さらに手前に出るよう、z-index は 55・56 だけを使う)
+  const helpWin = document.getElementById('help-window');
+  const helpFrame = document.getElementById('help-frame');
+  const windowOrder = []; // 後ろ → 手前 の順
+  function bringWindowToFront(win){
+    const i = windowOrder.indexOf(win);
+    if(i >= 0) windowOrder.splice(i, 1);
+    windowOrder.push(win);
+    windowOrder.forEach((w, k) => { w.style.zIndex = String(55 + k); }); // 55〜57。パネルやメニュー(60以上)より後ろ
+  }
+  function isFrontWindow(win){ return windowOrder[windowOrder.length - 1] === win && !win.hidden; }
+  [idsWin, cmpWin, helpWin].forEach(w => w.addEventListener('pointerdown', () => bringWindowToFront(w), true));
+  // 字体組立や使い方の中身(iframe)を押したときは、この画面には押した操作が届かないので、
+  // 中身から届く知らせと、操作が中身に移ったこと(この画面の blur)で気づく
+  window.addEventListener('blur', () => { setTimeout(() => {
+    if(document.activeElement === cmpFrame) bringWindowToFront(cmpWin);
+    if(document.activeElement === helpFrame) bringWindowToFront(helpWin);
+  }, 0); });
+
+  // 字体組立から届いた字形を、新しい外字として本文のカーソル位置に入れる
+  function allocateGaijiChar(){
+    let n = 0;
+    gaiji.forEach((_, k) => { n = Math.max(n, k.codePointAt(0) - GAIJI_BASE + 1); });
+    return String.fromCodePoint(GAIJI_BASE + n);
+  }
+  function insertGaiji(svg, name){
+    pushUndo(true, 'main:gaiji');
+    const ch = allocateGaijiChar();
+    gaiji.set(ch, { svg, name });
+    const s = hiddenInput.selectionStart, e = hiddenInput.selectionEnd;
+    const v = hiddenInput.value;
+    hiddenInput.value = v.slice(0, s) + ch + v.slice(e);
+    hiddenInput.setSelectionRange(s + ch.length, s + ch.length);
+    handleInput();
+  }
+  window.addEventListener('message', (e) => {
+    if(helpFrame.contentWindow && e.source === helpFrame.contentWindow){
+      if(e.data && e.data.type === 'help-activate') bringWindowToFront(helpWin);
+      return;
+    }
+    if(!cmpFrame.contentWindow || e.source !== cmpFrame.contentWindow) return; // 字体組立から以外は受け付けない
+    const d = e.data;
+    if(d && d.type === 'kanji-composer-activate'){ bringWindowToFront(cmpWin); return; }
+    if(!d || d.type !== 'kanji-composer-insert' || typeof d.svg !== 'string' || !/^\s*<svg[\s>]/.test(d.svg)) return;
+    insertGaiji(d.svg, typeof d.name === 'string' ? d.name : '');
+  });
+
+
+  // ---------- 新字体・旧字体の変換 ----------
+  // 常用漢字表(2010年)で括弧書きされている旧字体と、説(說)・税(稅)・内(內)などのよく使われる旧字体の対応。[新字体, 旧字体]
+  // 旧字体のうち「海」「漢」などは、Unicode の互換漢字(U+F900〜)の字で表している。
+  const JITAI_PAIRS = [["亜", "亞"], ["悪", "惡"], ["圧", "壓"], ["囲", "圍"], ["医", "醫"], ["為", "爲"], ["壱", "壹"], ["隠", "隱"], ["栄", "榮"], ["営", "營"], ["衛", "衞"], ["駅", "驛"], ["悦", "悅"], ["閲", "閱"], ["円", "圓"], ["塩", "鹽"], ["縁", "緣"], ["艶", "艷"], ["応", "應"], ["欧", "歐"], ["殴", "毆"], ["桜", "櫻"], ["奥", "奧"], ["横", "橫"], ["温", "溫"], ["穏", "穩"], ["仮", "假"], ["価", "價"], ["画", "畫"], ["会", "會"], ["回", "囘"], ["絵", "繪"], ["壊", "壞"], ["懐", "懷"], ["概", "槪"], ["拡", "擴"], ["殻", "殼"], ["覚", "覺"], ["学", "學"], ["岳", "嶽"], ["楽", "樂"], ["渇", "渴"], ["缶", "罐"], ["巻", "卷"], ["陥", "陷"], ["勧", "勸"], ["寛", "寬"], ["関", "關"], ["歓", "歡"], ["観", "觀"], ["顔", "顏"], ["気", "氣"], ["帰", "歸"], ["亀", "龜"], ["偽", "僞"], ["戯", "戲"], ["犠", "犧"], ["却", "卻"], ["旧", "舊"], ["拠", "據"], ["挙", "擧"], ["虚", "虛"], ["峡", "峽"], ["挟", "挾"], ["狭", "狹"], ["郷", "鄕"], ["暁", "曉"], ["区", "區"], ["駆", "驅"], ["勲", "勳"], ["薫", "薰"], ["径", "徑"], ["茎", "莖"], ["恵", "惠"], ["掲", "揭"], ["渓", "溪"], ["経", "經"], ["蛍", "螢"], ["軽", "輕"], ["継", "繼"], ["鶏", "鷄"], ["芸", "藝"], ["撃", "擊"], ["欠", "缺"], ["研", "硏"], ["県", "縣"], ["倹", "儉"], ["剣", "劍"], ["険", "險"], ["圏", "圈"], ["検", "檢"], ["献", "獻"], ["権", "權"], ["顕", "顯"], ["験", "驗"], ["厳", "嚴"], ["広", "廣"], ["効", "效"], ["恒", "恆"], ["黄", "黃"], ["鉱", "鑛"], ["号", "號"], ["国", "國"], ["黒", "黑"], ["砕", "碎"], ["済", "濟"], ["斎", "齋"], ["剤", "劑"], ["雑", "雜"], ["参", "參"], ["桟", "棧"], ["蚕", "蠶"], ["惨", "慘"], ["賛", "贊"], ["残", "殘"], ["糸", "絲"], ["歯", "齒"], ["児", "兒"], ["辞", "辭"], ["湿", "濕"], ["実", "實"], ["写", "寫"], ["釈", "釋"], ["寿", "壽"], ["収", "收"], ["従", "從"], ["渋", "澁"], ["獣", "獸"], ["縦", "縱"], ["粛", "肅"], ["処", "處"], ["緒", "緖"], ["叙", "敍"], ["将", "將"], ["称", "稱"], ["渉", "涉"], ["焼", "燒"], ["証", "證"], ["奨", "奬"], ["条", "條"], ["状", "狀"], ["乗", "乘"], ["浄", "淨"], ["剰", "剩"], ["畳", "疊"], ["縄", "繩"], ["壌", "壤"], ["嬢", "孃"], ["譲", "讓"], ["醸", "釀"], ["触", "觸"], ["嘱", "囑"], ["真", "眞"], ["寝", "寢"], ["慎", "愼"], ["尽", "盡"], ["図", "圖"], ["粋", "粹"], ["酔", "醉"], ["穂", "穗"], ["随", "隨"], ["髄", "髓"], ["枢", "樞"], ["数", "數"], ["瀬", "瀨"], ["声", "聲"], ["斉", "齊"], ["静", "靜"], ["窃", "竊"], ["摂", "攝"], ["専", "專"], ["浅", "淺"], ["戦", "戰"], ["践", "踐"], ["銭", "錢"], ["潜", "潛"], ["繊", "纖"], ["禅", "禪"], ["双", "雙"], ["壮", "壯"], ["争", "爭"], ["荘", "莊"], ["捜", "搜"], ["挿", "插"], ["巣", "巢"], ["曽", "曾"], ["痩", "瘦"], ["装", "裝"], ["総", "總"], ["騒", "騷"], ["増", "增"], ["蔵", "藏"], ["臓", "臟"], ["即", "卽"], ["属", "屬"], ["続", "續"], ["堕", "墮"], ["対", "對"], ["体", "體"], ["帯", "帶"], ["滞", "滯"], ["台", "臺"], ["滝", "瀧"], ["択", "擇"], ["沢", "澤"], ["担", "擔"], ["単", "單"], ["胆", "膽"], ["団", "團"], ["断", "斷"], ["弾", "彈"], ["遅", "遲"], ["痴", "癡"], ["虫", "蟲"], ["昼", "晝"], ["鋳", "鑄"], ["庁", "廳"], ["徴", "徵"], ["聴", "聽"], ["勅", "敕"], ["鎮", "鎭"], ["逓", "遞"], ["鉄", "鐵"], ["点", "點"], ["転", "轉"], ["伝", "傳"], ["灯", "燈"], ["当", "當"], ["党", "黨"], ["盗", "盜"], ["稲", "稻"], ["闘", "鬭"], ["徳", "德"], ["独", "獨"], ["読", "讀"], ["届", "屆"], ["弐", "貳"], ["悩", "惱"], ["脳", "腦"], ["覇", "霸"], ["拝", "拜"], ["廃", "廢"], ["売", "賣"], ["麦", "麥"], ["発", "發"], ["髪", "髮"], ["抜", "拔"], ["晩", "晚"], ["蛮", "蠻"], ["秘", "祕"], ["浜", "濱"], ["瓶", "甁"], ["払", "拂"], ["仏", "佛"], ["併", "倂"], ["並", "竝"], ["変", "變"], ["辺", "邊"], ["歩", "步"], ["宝", "寶"], ["豊", "豐"], ["褒", "襃"], ["没", "沒"], ["翻", "飜"], ["毎", "每"], ["万", "萬"], ["満", "滿"], ["麺", "麵"], ["黙", "默"], ["餅", "餠"], ["戻", "戾"], ["弥", "彌"], ["薬", "藥"], ["訳", "譯"], ["予", "豫"], ["余", "餘"], ["与", "與"], ["誉", "譽"], ["揺", "搖"], ["様", "樣"], ["謡", "謠"], ["来", "來"], ["頼", "賴"], ["乱", "亂"], ["覧", "覽"], ["竜", "龍"], ["両", "兩"], ["猟", "獵"], ["緑", "綠"], ["涙", "淚"], ["塁", "壘"], ["礼", "禮"], ["励", "勵"], ["霊", "靈"], ["齢", "齡"], ["暦", "曆"], ["歴", "歷"], ["恋", "戀"], ["錬", "鍊"], ["炉", "爐"], ["労", "勞"], ["郎", "郞"], ["楼", "樓"], ["録", "錄"], ["湾", "灣"], ["冊", "册"], ["刃", "刄"], ["妊", "姙"], ["床", "牀"], ["欄", "欄"], ["廊", "廊"], ["朗", "朗"], ["虜", "虜"], ["殺", "殺"], ["類", "類"], ["隆", "隆"], ["塚", "塚"], ["益", "益"], ["神", "神"], ["祥", "祥"], ["福", "福"], ["諸", "諸"], ["都", "都"], ["館", "館"], ["侮", "侮"], ["僧", "僧"], ["免", "免"], ["勉", "勉"], ["勤", "勤"], ["卑", "卑"], ["喝", "喝"], ["嘆", "嘆"], ["器", "器"], ["塀", "塀"], ["墨", "墨"], ["層", "層"], ["悔", "悔"], ["慨", "慨"], ["憎", "憎"], ["懲", "懲"], ["敏", "敏"], ["既", "既"], ["暑", "暑"], ["梅", "梅"], ["海", "海"], ["漢", "漢"], ["煮", "煮"], ["碑", "碑"], ["社", "社"], ["祉", "祉"], ["祈", "祈"], ["祖", "祖"], ["祝", "祝"], ["禍", "禍"], ["穀", "穀"], ["突", "突"], ["節", "節"], ["練", "練"], ["繁", "繁"], ["署", "署"], ["者", "者"], ["臭", "臭"], ["著", "著"], ["褐", "褐"], ["視", "視"], ["謁", "謁"], ["謹", "謹"], ["賓", "賓"], ["贈", "贈"], ["逸", "逸"], ["難", "難"], ["響", "響"], ["頻", "頻"], ["弁", "辨"], ["弁", "瓣"], ["弁", "辯"], ["説", "說"], ["税", "稅"], ["脱", "脫"], ["鋭", "銳"], ["内", "內"], ["呉", "吳"], ["娯", "娛"], ["姫", "姬"]];
+  const OLD_TO_NEW = new Map();
+  const NEW_TO_OLD = new Map();
+  JITAI_PAIRS.forEach(([n, o]) => {
+    OLD_TO_NEW.set(o, n);
+    if(!NEW_TO_OLD.has(n)) NEW_TO_OLD.set(n, []);
+    NEW_TO_OLD.get(n).push(o);
+  });
+  // 新字体の形が、もとは別の字として使われていた字。漢文では「予(われ)」「台(星の名)」のように
+  // 元の字のまま使われていることがあるので、まとめて変換するときは旧字体にしない(1字だけ選んだときは変換する)。
+  const KYU_BULK_SKIP = new Set(Array.from('予余台弁欠芸糸缶証医号灯体虫豊浜蚕'));
+
+  // 範囲内の字を変換する。dir は 'shin'(新字体へ)か 'kyu'(旧字体へ)。
+  // single は「1字だけ選んでいる」とき、forcedOld は旧字体の候補が複数ある字で選ばれた候補。
+  function convertJitaiRange(dir, start, end, single, forcedOld){
+    const text = hiddenInput.value;
+    let out = '', count = 0;
+    let i = 0;
+    while(i < text.length){
+      const ch = charAtIdx(text, i);
+      let r = null;
+      if(i >= start && i < end){
+        if(dir === 'shin'){
+          r = OLD_TO_NEW.get(ch) || null;
+        } else {
+          const list = NEW_TO_OLD.get(ch);
+          if(list){
+            if(forcedOld && list.includes(forcedOld)) r = forcedOld;
+            else if(list.length === 1 && (single || !KYU_BULK_SKIP.has(ch))) r = list[0];
+          }
+        }
+      }
+      if(r && r.length === ch.length){ out += r; count++; }
+      else out += ch;
+      i += ch.length;
+    }
+    if(count > 0){
+      const s = hiddenInput.selectionStart, e = hiddenInput.selectionEnd;
+      pushUndo(true, 'main:jitai');
+      hiddenInput.value = out;
+      prevText = out;
+      render();
+      hiddenInput.setSelectionRange(s, e);
+      updateCaretVisual();
+    }
+    return count;
+  }
+
+  const jitaiStatus = document.getElementById('jitai-status');
+  function showJitaiResult(dir, count, scopeLabel){
+    const what = dir === 'shin' ? '新字体' : '旧字体';
+    jitaiStatus.textContent = count > 0
+      ? scopeLabel + 'の' + count + '字を' + what + 'に変換しました。'
+      : scopeLabel + 'に、' + what + 'に変換できる字はありませんでした。';
+  }
+
+  // 選択していなければ文書全体、選択していればその範囲を変換する
+  function runJitaiConversion(dir, forcedOld){
+    const s = hiddenInput.selectionStart, e = hiddenInput.selectionEnd;
+    const hasSel = e > s;
+    const start = hasSel ? s : 0;
+    const end = hasSel ? e : hiddenInput.value.length;
+    const single = hasSel && countChars(hiddenInput.value.slice(s, e)) === 1;
+    const count = convertJitaiRange(dir, start, end, single, forcedOld);
+    showJitaiResult(dir, count, hasSel ? '選択した範囲' : '文書全体');
+    return count;
+  }
+
+  // 選択範囲に、変換できる字があるかを調べる(右クリックメニューに出すかどうかの判断)
+  function jitaiCandidates(sel){
+    const chars = Array.from(sel);
+    const single = chars.length === 1;
+    const toShin = chars.some(ch => OLD_TO_NEW.has(ch));
+    const toKyu = chars.some(ch => {
+      const list = NEW_TO_OLD.get(ch);
+      return list && list.length === 1 && (single || !KYU_BULK_SKIP.has(ch));
+    });
+    const multiOld = single && NEW_TO_OLD.has(chars[0]) && NEW_TO_OLD.get(chars[0]).length > 1 ? NEW_TO_OLD.get(chars[0]) : null;
+    return { toShin, toKyu, multiOld };
+  }
+
+  document.getElementById('btn-to-shin').addEventListener('click', () => {
+    const count = convertJitaiRange('shin', 0, hiddenInput.value.length, false, null);
+    showJitaiResult('shin', count, '文書全体');
+    hiddenInput.focus();
+  });
+  document.getElementById('btn-to-kyu').addEventListener('click', () => {
+    const count = convertJitaiRange('kyu', 0, hiddenInput.value.length, false, null);
+    showJitaiResult('kyu', count, '文書全体');
+    hiddenInput.focus();
+  });
+
+
+  // ---------- 漢字以外のすべての記号を消す ----------
+  // 本文から、漢字(拡張漢字・組み立てた字を含む)と改行以外の字をすべて消し、上下記号も消す。
+  // 振り仮名・送り仮名・訓点などの読みは残す。注釈や熟字訓の位置は、消した字の分だけ詰める。
+  function stripNonKanji(){
+    const text = hiddenInput.value;
+    const keptBefore = new Array(text.length + 1); // その位置より前に残る字の長さ(位置の付け替え用)
+    let out = '', removedChars = 0, i = 0;
+    while(i < text.length){
+      const ch = charAtIdx(text, i);
+      for(let k = 0; k < ch.length; k++) keptBefore[i + k] = out.length;
+      if(ch === '\n' || isKanji(ch)) out += ch;
+      else removedChars++;
+      i += ch.length;
+    }
+    keptBefore[text.length] = out.length;
+    let removedMarks = 0;
+    annotations.forEach(a => { if(a.kami) removedMarks++; if(a.shimo) removedMarks++; });
+    if(removedChars === 0 && removedMarks === 0) return { removedChars, removedMarks };
+
+    pushUndo(true, 'main:strip');
+    const next = new Map();
+    annotations.forEach((a, idx) => {
+      if(!isKanji(charAtIdx(text, idx))) return;
+      const b = Object.assign({}, a, { kami: '', shimo: '' });
+      next.set(keptBefore[idx], b);
+    });
+    annotations = next;
+    jukujikunSpans = jukujikunSpans
+      .map(sp => ({ start: keptBefore[sp.start], end: keptBefore[sp.end], text: sp.text }))
+      .filter(sp => sp.end > sp.start);
+    const caret = keptBefore[Math.min(hiddenInput.selectionEnd, text.length)];
+    hiddenInput.value = out;
+    prevText = out;
+    hiddenInput.setSelectionRange(caret, caret);
+    render();
+    return { removedChars, removedMarks };
+  }
+  document.getElementById('btn-strip-symbols').addEventListener('click', () => {
+    const r = stripNonKanji();
+    document.getElementById('strip-status').textContent = (r.removedChars || r.removedMarks)
+      ? '本文の字を' + r.removedChars + '字、上下記号を' + r.removedMarks + '個消しました。'
+      : '消す記号はありませんでした。';
+    hiddenInput.focus();
+  });
+
+  // ---------- ページ番号の表記 ----------
+  // ページの下のページ番号を押すと、Word のように表記を選べる
+  const PAGE_NUMBER_FORMATS = [
+    ['none', 'ページ表記なし'],
+    ['n', '数字だけ(1)'],
+    ['dash', 'ハイフンで囲む(- 1 -)'],
+    ['n-of-m', '総ページ数つき(1 / 3)'],
+    ['page-jp', 'ページを付ける(1ページ)'],
+    ['kanji', '漢数字(一)'],
+  ];
+  function toKanjiNumber(n){
+    const d = '〇一二三四五六七八九';
+    if(n < 10) return d[n];
+    const units = [[1000, '千'], [100, '百'], [10, '十']];
+    let s = '';
+    for(const [v, u] of units){
+      const q = Math.floor(n / v);
+      if(q){ s += (q > 1 ? d[q] : '') + u; n %= v; }
+    }
+    return s + (n ? d[n] : '');
+  }
+  function formatPageNumber(n, total){
+    switch(state.pageNumberFormat){
+      case 'none': return '';
+      case 'n': return String(n);
+      case 'dash': return '- ' + n + ' -';
+      case 'page-jp': return n + 'ページ';
+      case 'kanji': return toKanjiNumber(n);
+      default: return n + ' / ' + total;
+    }
+  }
+  function showPageNumberMenu(clientX, clientY){
+    closeAnnotationPanel();
+    contextMenuEl.innerHTML = '';
+    PAGE_NUMBER_FORMATS.forEach(([key, label]) => {
+      addMenuItem((state.pageNumberFormat === key ? '✓ ' : '　 ') + label, () => {
+        if(state.pageNumberFormat === key) return;
+        pushUndo(true, 'main:pagenum');
+        state.pageNumberFormat = key;
+        render();
+      });
+    });
+    contextMenuEl.style.display = 'block';
+    const r = contextMenuEl.getBoundingClientRect();
+    contextMenuEl.style.left = Math.max(4, Math.min(clientX, window.innerWidth - r.width - 4)) + 'px';
+    contextMenuEl.style.top = Math.max(4, Math.min(clientY - r.height, window.innerHeight - r.height - 4)) + 'px';
+  }
+
+
+  // ---------- 使い方のウィンドウ ----------
+  // 漢字検索・字体組立と同じく、同じタブの中でウィンドウとして開く(中身は help.html)
+  function setupFloatingWindow(win, titlebar, frame, box, minW, minH){
+    function apply(){
+      const vw = window.innerWidth, vh = window.innerHeight;
+      box.width = Math.max(minW, Math.min(box.width, vw - 16));
+      box.height = Math.max(minH, Math.min(box.height, vh - 16));
+      box.left = Math.max(80 - box.width, Math.min(box.left, vw - 80));
+      box.top = Math.max(0, Math.min(box.top, vh - 40));
+      win.style.left = box.left + 'px'; win.style.top = box.top + 'px';
+      win.style.width = box.width + 'px'; win.style.height = box.height + 'px';
+    }
+    // 動かす・大きさを変えている間は、中身(iframe)がマウスの動きを奪わないようにする
+    function track(el, onMove){
+      return (e) => {
+        if(e.button !== 0) return;
+        if(e.target.closest && e.target.closest('.ids-close')) return;
+        e.preventDefault();
+        const s0 = { x: e.clientX, y: e.clientY, left: box.left, top: box.top, width: box.width, height: box.height };
+        el.setPointerCapture && el.setPointerCapture(e.pointerId);
+        if(frame) frame.style.pointerEvents = 'none';
+        const move = (ev) => { onMove(s0, ev.clientX - s0.x, ev.clientY - s0.y); apply(); };
+        const up = () => {
+          if(frame) frame.style.pointerEvents = '';
+          el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up);
+        };
+        el.addEventListener('pointermove', move); el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
+      };
+    }
+    titlebar.addEventListener('pointerdown', track(titlebar, (s0, dx, dy) => { box.left = s0.left + dx; box.top = s0.top + dy; }));
+    win.querySelectorAll('.ids-rz').forEach(h => {
+      const dir = h.getAttribute('data-dir');
+      h.addEventListener('pointerdown', track(h, (s0, dx, dy) => {
+        if(dir.includes('e')) box.width = Math.max(minW, s0.width + dx);
+        if(dir.includes('s')) box.height = Math.max(minH, s0.height + dy);
+        if(dir.includes('w')){ const w = Math.max(minW, s0.width - dx); box.left = s0.left + (s0.width - w); box.width = w; }
+        if(dir.includes('n')){ const hh = Math.max(minH, s0.height - dy); box.top = s0.top + (s0.height - hh); box.height = hh; }
+      }));
+    });
+    window.addEventListener('resize', () => { if(!win.hidden) apply(); });
+    return { apply };
+  }
+  const helpBox = { left: null, top: null, width: 920, height: 760 };
+  const helpWindow = setupFloatingWindow(helpWin, document.getElementById('help-titlebar'), helpFrame, helpBox, 360, 300);
+  const helpBtn = document.getElementById('btn-help');
+  function openHelp(){
+    if(helpBox.left === null){
+      helpBox.width = Math.min(920, window.innerWidth - 32);
+      helpBox.height = Math.min(760, window.innerHeight - 96);
+      helpBox.left = Math.max(16, (window.innerWidth - helpBox.width) / 2);
+      helpBox.top = 64;
+    }
+    if(!helpFrame.getAttribute('src')) helpFrame.setAttribute('src', 'help.html');
+    helpWin.hidden = false;
+    bringWindowToFront(helpWin);
+    helpBtn.setAttribute('aria-expanded', 'true');
+    helpWindow.apply();
+  }
+  function closeHelp(){ helpWin.hidden = true; helpBtn.setAttribute('aria-expanded', 'false'); hiddenInput.focus(); }
+  helpBtn.addEventListener('click', () => {
+    if(helpWin.hidden) openHelp();
+    else if(!isFrontWindow(helpWin)) bringWindowToFront(helpWin);
+    else closeHelp();
+  });
+  document.getElementById('help-close').addEventListener('click', closeHelp);
+  helpWin.addEventListener('keydown', (e) => { if(e.key === 'Escape'){ e.preventDefault(); closeHelp(); } });
+
+  // ---------- 初期化 ----------
+  recomputeGeometry();
+  syncSlidersFromState();
+  render();
+  hiddenInput.focus();
+  // 本文の表示を先に済ませてから、辞書の読み込みを始める
+  setTimeout(tryAutoLoadDict, 300);
+
+})();
+</script>
+</body>
+</html>

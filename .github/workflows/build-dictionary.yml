@@ -1,0 +1,36 @@
+# data フォルダの辞書(.txt)を追加・変更して GitHub に上げると、
+# data/ids_data.js を自動で作り直してコミットします。
+name: 辞書をまとめる
+
+on:
+  push:
+    paths:
+      - 'data/**.txt'
+      - 'js/ids_merge.js'
+      - 'tools/build_ids_data.js'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: 辞書をまとめる
+        run: node tools/build_ids_data.js
+      - name: 変わっていればコミットする
+        run: |
+          if [ -z "$(git status --porcelain -- data/ids_data.js)" ]; then
+            echo "辞書に変更はありません"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/ids_data.js
+          git commit -m "辞書(data/ids_data.js)を自動で更新"
+          git push

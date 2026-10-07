@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>使い方|漢文エディタ 交利</title>
+<link rel="icon" href="icons/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="icons/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  /* デジタル庁デザインシステム(DADS)に準拠 */
+  :root{
+    --primary:#0017c1; --primary-hover:#00118f; --ink:#333333; --ink-strong:#1a1a1a; --muted:#666666;
+    --hairline:#949494; --line:#cccccc; --canvas:#ffffff; --surface:#f2f2f2; --tint:#e8f1fe;
+    --font:"Noto Sans JP","Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif;
+  }
+  *{ box-sizing:border-box; }
+  html{ scroll-behavior:smooth; scroll-padding-top:16px; }
+  body{ margin:0; background:var(--surface); color:var(--ink); font-family:var(--font); font-size:16px; line-height:1.8; }
+  header{ background:var(--canvas); border-bottom:1px solid var(--hairline); padding:16px 24px; display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; }
+  header h1{ margin:0; font-size:22px; line-height:1.5; color:var(--ink-strong); }
+  header a{ color:var(--primary); font-weight:700; }
+  .layout{ max-width:1080px; margin:24px auto; padding:0 16px; display:grid; grid-template-columns:240px 1fr; gap:24px; align-items:start; }
+  nav{ position:sticky; top:16px; background:var(--canvas); border:1px solid var(--hairline); border-radius:8px; padding:12px 8px; }
+  nav p{ margin:4px 8px 8px; font-size:14px; font-weight:700; color:var(--ink-strong); }
+  nav a{ display:block; padding:6px 8px; border-radius:6px; color:var(--primary); text-decoration:none; font-size:14px; line-height:1.5; }
+  nav a:hover{ background:var(--tint); text-decoration:underline; }
+  main{ display:flex; flex-direction:column; gap:20px; }
+  section{ background:var(--canvas); border:1px solid var(--hairline); border-radius:8px; padding:24px 28px; }
+  h2{ margin:0 0 12px; font-size:20px; line-height:1.5; color:var(--ink-strong); }
+  h3{ margin:20px 0 6px; font-size:16px; color:var(--ink-strong); }
+  p{ margin:8px 0; }
+  ul, ol{ margin:8px 0; padding-left:1.4em; }
+  li{ margin:4px 0; }
+  kbd{ display:inline-block; padding:0 6px; border:1px solid var(--hairline); border-bottom-width:2px; border-radius:4px; background:var(--surface); font-family:var(--font); font-size:13px; line-height:1.6; }
+  .btn-name{ display:inline-block; padding:0 8px; border:1px solid var(--primary); border-radius:6px; color:var(--primary); font-size:14px; font-weight:700; line-height:1.6; white-space:nowrap; }
+  table{ width:100%; border-collapse:collapse; margin:8px 0; font-size:15px; }
+  th, td{ border-bottom:1px solid var(--line); padding:8px 10px; text-align:left; vertical-align:top; }
+  th{ background:var(--surface); font-weight:700; color:var(--ink-strong); white-space:nowrap; }
+  .note{ background:var(--tint); border-radius:8px; padding:10px 14px; font-size:15px; }
+  .help-footer{ max-width:1080px; margin:0 auto 24px; padding:12px 16px; border-top:1px solid var(--hairline); font-size:13px; color:var(--muted); }
+  @media (max-width:800px){ .layout{ grid-template-columns:1fr; } nav{ position:static; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>漢文エディタ 交利の使い方</h1>
+  <a href="index.html" id="back-link">交利に戻る</a>
+</header>
+<div class="layout">
+  <nav aria-label="目次">
+    <p>目次</p>
+    <a href="#basic">文字を入力する</a>
+    <a href="#move">カーソルの移動と選択</a>
+    <a href="#anno">振り仮名・送り仮名・訓点</a>
+    <a href="#marks">上下記号(句読点・括弧)</a>
+    <a href="#jukujikun">熟字訓</a>
+    <a href="#jitai">旧字体と新字体の変換</a>
+    <a href="#strip">漢字以外の記号を消す</a>
+    <a href="#search">検索・置換</a>
+    <a href="#ids">漢字検索</a>
+    <a href="#composer">字体組立</a>
+    <a href="#windows">ウィンドウの扱い</a>
+    <a href="#settings">左の欄の設定</a>
+    <a href="#zoom">表示倍率</a>
+    <a href="#pagenum">ページ番号</a>
+    <a href="#file">保存・開く・印刷</a>
+    <a href="#keys">ショートカットキー一覧</a>
+    <a href="#kanji">拡張漢字の表示について</a>
+    <a href="#credits">クレジット・ライセンス</a>
+  </nav>
+
+  <main>
+    <section id="basic">
+      <h2>文字を入力する</h2>
+      <p>ページの上をクリックすると、その位置にカーソルが付き、文字を入力できます。日本語入力(IME)もそのまま使えます。文字は縦書きで、右の行から左の行へ進みます。</p>
+      <ul>
+        <li><kbd>Enter</kbd>で改行すると、次の行(左の行)に移ります。改行だけの空の行も作れます。</li>
+        <li>1行に入りきらない文字は、自動で次の行に送られます。ページがいっぱいになると、次のページが作られます。</li>
+        <li>コピー・切り取り・貼り付けは、<kbd>Ctrl</kbd>+<kbd>C</kbd>・<kbd>X</kbd>・<kbd>V</kbd>か、右クリックのメニューから行えます。</li>
+        <li>操作は<kbd>Ctrl</kbd>+<kbd>Z</kbd>で元に戻し、<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd>(または<kbd>Ctrl</kbd>+<kbd>Y</kbd>)でやり直せます。設定の変更なども元に戻せます。</li>
+      </ul>
+    </section>
+
+    <section id="move">
+      <h2>カーソルの移動と選択</h2>
+      <table>
+        <tr><th>操作</th><th>動き</th></tr>
+        <tr><td><kbd>↓</kbd> / <kbd>↑</kbd></td><td>次の字 / 前の字へ移ります(縦書きの読む順)。</td></tr>
+        <tr><td><kbd>←</kbd> / <kbd>→</kbd></td><td>次の行(左) / 前の行(右)へ移ります。空の行にも止まります。</td></tr>
+        <tr><td><kbd>Shift</kbd>+矢印</td><td>移りながら範囲を選びます。</td></tr>
+        <tr><td>ドラッグ</td><td>マウスで範囲を選びます。</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>A</kbd></td><td>すべて選びます。</td></tr>
+      </table>
+      <p>字の上半分を押すとその字の前に、下半分を押すとその字の後ろにカーソルが付きます。空の行を押すと、その行の初めにカーソルが付きます。</p>
+    </section>
+
+    <section id="anno">
+      <h2>振り仮名・送り仮名・訓点</h2>
+      <p>漢字の上で右クリックすると、メニューと一緒に、その漢字の入力パネルが開きます。パネルに入力すると、その場でページに反映されます。</p>
+      <table>
+        <tr><th>項目</th><th>内容</th></tr>
+        <tr><td>振り仮名</td><td>漢字の右側に付く読み仮名です。</td></tr>
+        <tr><td>送り仮名</td><td>漢字の右下に付きます。ひらがなで入力しても、カタカナに直ります。<span class="btn-name">〻</span>ボタンで踊り字を入れられます。</td></tr>
+        <tr><td>訓点</td><td>漢字の左下に付く返り点です。欄を押すと、レ・一・二・上・下・甲・乙・天・地・人・一レ・上レなどの候補が出ます。<kbd>Backspace</kbd>で消せます。</td></tr>
+        <tr><td>上記号・下記号</td><td>漢字の上下に付く句読点や括弧です(下の「上下記号」も参照)。</td></tr>
+        <tr><td>左振り仮名・左送り仮名</td><td>漢字の左側に付く読みです。</td></tr>
+      </table>
+      <p>2字以上を選んで右クリックしたときは、このパネルは開きません。</p>
+    </section>
+
+    <section id="marks">
+      <h2>上下記号(句読点・括弧)</h2>
+      <p>本文に打った句読点や括弧を、漢字に付ける「上下記号」に変えられます。漢文の版面のように、句読点などが字と字の間に小さく入ります。</p>
+      <ul>
+        <li>範囲を選んで右クリックし、「選択した範囲の記号を上下記号にする」を選びます。<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>K</kbd>でも行えます。</li>
+        <li>開き括弧は直後の漢字の上に、閉じ括弧・句読点は直前の漢字の下に付きます。</li>
+        <li>元の記号に戻すときは「選択した範囲の上下記号を記号に戻す」(<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>O</kbd>)を使います。</li>
+        <li>何も選ばずに使うと、文書全体が対象になります。</li>
+      </ul>
+    </section>
+
+    <section id="jukujikun">
+      <h2>熟字訓</h2>
+      <p>「昨日(きのう)」のように、2字以上にまとめて読みを付けます。</p>
+      <ol>
+        <li>読みを付けたい字を2字以上選びます。</li>
+        <li>右クリックして「熟字訓を入力」を選びます。</li>
+        <li>読みを入力して<kbd>Enter</kbd>を押します。</li>
+      </ol>
+      <p>読みは、最初の字から最後の字までの右側に、均等に割り付けられます。まとめた字のうち1字でも消すと、熟字訓も消えます。</p>
+      <p>熟字訓を付けた字にも、1字ずつ右クリックして、訓点・上記号・下記号・左振り仮名・左送り仮名を付けられます。右側には熟字訓の読みが出るため、振り仮名と送り仮名は表示されません。</p>
+    </section>
+
+    <section id="jitai">
+      <h2>旧字体と新字体の変換</h2>
+      <ul>
+        <li>左の「検索・置換」にある<span class="btn-name">旧字体を新字体に変換</span><span class="btn-name">新字体を旧字体に変換</span>で、文書全体を変換します。</li>
+        <li>字を選んで右クリックすると、変換できる字があるときに「新字体に変換」「旧字体に変換」が出ます。この場合は選んだ範囲だけを変換します。</li>
+        <li>「弁」のように旧字体が複数ある字は、「旧字体に変換(辨)」のように候補ごとに出ます。</li>
+        <li>「予(われ)」「余」「台」「芸」「欠」など、漢文では元の字のまま使われることがある字は、まとめて変換するときは旧字体にしません。1字だけ選べば変換できます。</li>
+      </ul>
+      <p class="note">「海」「漢」などの旧字体は、Unicode の互換漢字という字で表します。ほかのソフトに貼り付けると、新字体に戻ることがあります。</p>
+    </section>
+
+    <section id="strip">
+      <h2>漢字以外の記号を消す</h2>
+      <p>左の「記号を消す」にある<span class="btn-name">漢字以外のすべての記号を消す</span>を押すと、本文から漢字以外の字(句読点・括弧・仮名・英数字など)をすべて消し、上下記号も消します。白文を作るときに使えます。</p>
+      <p>改行と、振り仮名・送り仮名・訓点・熟字訓はそのまま残ります。<kbd>Ctrl</kbd>+<kbd>Z</kbd>で元に戻せます。</p>
+    </section>
+
+    <section id="search">
+      <h2>検索・置換</h2>
+      <p>左の「検索・置換」で、検索する文字列と置換する文字列を入れて<span class="btn-name">実行</span>を押すと、文書全体を置き換えます。本文だけでなく、振り仮名などの読みの中も置き換えます。</p>
+    </section>
+
+    <section id="ids">
+      <h2>漢字検索</h2>
+      <p>左の欄の「漢字を探す・作る」にある<span class="btn-name">漢字検索</span>で開きます。読み方の分からない字や、変換で出ない字を、部首や部品から探せます。</p>
+      <ol>
+        <li>探したい字に含まれる部首・部品を、画数のタブから押して選びます(入力欄に直接打ち込むこともできます)。</li>
+        <li>選んだ部首・部品を多く含む字から順に、自動で表示されます。同じ部品を2回選ぶと「2つ含む」の意味になります(例:木を2回で林・森)。</li>
+        <li>見つかった字を押すと、本文のカーソル位置に入ります。</li>
+      </ol>
+      <p>「1つ消す」「すべて消す」で、選んだ部品を消せます。CJK統合漢字拡張の字(約10万字)も探せます。</p>
+      <h3>形の似た部品・細かく分けた部品</h3>
+      <ul>
+        <li>部首の変形など、形が同じ仲間の部品は同じものとして探します(例:「言」と「訁」、「水」と「氵」、「足」と「𧾷」、「刀」と「刂」、「几」と「𠘧」、「乂」と「㐅」)。「阝」は、こざとへん(阜)とおおざと(邑)のどちらも探します。</li>
+        <li>部品は、さらに細かい部品に分けても見つかります。例えば「殺」は、「殳(るまた)」で探しても、それを分けた「几」「又」で探しても見つかります。</li>
+        <li>反対に、まとまった部品で探したときも、その部品を細かく分けて書いてある字が見つかります。</li>
+      </ul>
+    </section>
+
+    <section id="composer">
+      <h2>字体組立</h2>
+      <p>左の欄の「漢字を探す・作る」にある<span class="btn-name">字体組立</span>で開きます。Unicode に無い字や、漢字検索で見つからない字を、GlyphWiki の部品を組み合わせて作れます(インターネットへの接続が必要です)。</p>
+      <h3>部品を探して置く</h3>
+      <ul>
+        <li>入力欄に字やGlyphWikiの名前を入れて<span class="btn-name">部品を検索</span>を押すと、候補が字形付きで出ます。押すと組み立て台に置かれます。</li>
+        <li>「部首・部品から探す」の部首を押しても、その部首で検索できます。</li>
+        <li>GlyphWikiの名前(例:u6c35-07)が分かっているときは、<span class="btn-name">名前で取り込む</span>で直接置けます。</li>
+      </ul>
+      <h3>組み立て台での操作</h3>
+      <ul>
+        <li>部品はドラッグで動かし、右下の■で大きさを変えます。赤い丸のつまみを動かすと回転します。</li>
+        <li>白い枠の外の灰色の部分まで、はみ出して置けます。</li>
+        <li>四角は選んでいる部品にだけ表示されます。ほかの部品は、その上を押すか、下の表のラジオボタンで選べます。組み立て台の外を押すと選択が外れます。</li>
+        <li>下の表では、位置(x1・y1・x2・y2)と回転の角度を数値で入れられ、⇋⇵で左右・上下を反転できます。×で部品を消します。</li>
+        <li><span class="btn-name">消しゴムモード</span>をオンにすると、囲んだ範囲を消せます。<span class="btn-name">消しゴム跡をクリア</span>で消した跡を元に戻します。</li>
+        <li>部品を選ぶと、その部品の線を1本ずつ外して、一部を除いた部品を作れます。</li>
+        <li><kbd>Delete</kbd>で選んだ部品を消し、<kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>V</kbd>で複製、<kbd>Ctrl</kbd>+<kbd>Z</kbd>で元に戻せます。</li>
+      </ul>
+      <h3>エディタに入れる</h3>
+      <p><span class="btn-name">この字をエディタに入れる</span>を押すと、組み立てた字が本文のカーソル位置に入ります。組み立て台の灰色の余白ガイド(白い枠の内側の線)が、ちょうど1文字分の大きさになります。入れた字にも振り仮名などを付けられ、保存・印刷もできます。</p>
+      <p class="note">組み立てた字は、その文書の中だけで使える字として保存されます。文書の外にコピーすると、別の記号になります。</p>
+    </section>
+
+    <section id="windows">
+      <h2>ウィンドウの扱い</h2>
+      <p>漢字検索・字体組立・使い方は、同じ画面の中にウィンドウとして開きます。</p>
+      <ul>
+        <li>タイトルの部分をつかむと動かせ、縁や角をつかむと大きさを変えられます。×か<kbd>Esc</kbd>で閉じます。</li>
+        <li>押したウィンドウが手前に来ます。ボタンで開いたウィンドウは、いちばん手前に出ます。</li>
+        <li>開いているウィンドウのボタンをもう一度押すと、後ろにあるときは手前に出し、いちばん手前にあるときは閉じます。</li>
+      </ul>
+    </section>
+
+    <section id="settings">
+      <h2>左の欄の設定</h2>
+      <p>左の欄のいちばん上に「使い方」ボタン、その下に表示倍率と文字数・ページ数が常に表示されています。その下の各項目は、項目名を押すと中身が開き、もう一度押すと閉じます。</p>
+      <table>
+        <tr><th>項目</th><th>内容</th></tr>
+        <tr><td>ファイル</td><td>新規作成・開く・保存・印刷・PDFにする(下の「保存・開く・印刷」を参照)。</td></tr>
+        <tr><td>漢字を探す・作る</td><td>漢字検索・字体組立のウィンドウを開きます。</td></tr>
+        <tr><td>文字とページ</td><td>文字サイズ・行間・字間・余白・漢字の太さを数値で変えます。</td></tr>
+        <tr><td>訓読の文字</td><td>振り仮名などの大きさ(漢字に対する割合)と、熟字訓の読みの字間を変えます。</td></tr>
+        <tr><td>注釈の位置(px)</td><td>振り仮名・送り仮名・訓点・上下記号などの位置を、横と縦に細かく調整します。</td></tr>
+        <tr><td>検索・置換</td><td>文字列の置換と、旧字体・新字体の変換を行います。</td></tr>
+        <tr><td>記号を消す</td><td>漢字以外の記号をまとめて消します。</td></tr>
+      </table>
+    </section>
+
+    <section id="zoom">
+      <h2>表示倍率</h2>
+      <ul>
+        <li>ページの上で、トラックパッドを2本指で広げる・狭める(ピンチ)と、指の位置を中心に拡大・縮小します。タッチパネルの2本指でも同じです。</li>
+        <li><kbd>Ctrl</kbd>を押しながらマウスのホイールを回すと、10%ずつ拡大・縮小します。</li>
+        <li>左の欄の上のほう(「使い方」の下)にある「表示倍率」のバーでも変えられます(25%〜400%)。</li>
+      </ul>
+      <p>倍率は画面での見え方だけを変えます。印刷やPDFには影響しません。</p>
+    </section>
+
+    <section id="pagenum">
+      <h2>ページ番号</h2>
+      <p>ページの下にあるページ番号を押すと、表記を選べます。番号を表示していないときも、ページの下の中央を押せば選べます。</p>
+      <table>
+        <tr><th>表記</th><th>例</th></tr>
+        <tr><td>ページ表記なし</td><td>(表示しない)</td></tr>
+        <tr><td>数字だけ</td><td>1</td></tr>
+        <tr><td>ハイフンで囲む</td><td>- 1 -</td></tr>
+        <tr><td>総ページ数つき</td><td>1 / 3</td></tr>
+        <tr><td>ページを付ける</td><td>1ページ</td></tr>
+        <tr><td>漢数字</td><td>一</td></tr>
+      </table>
+    </section>
+
+    <section id="file">
+      <h2>保存・開く・印刷</h2>
+      <p>左の欄の「ファイル」にあるボタンを使います。</p>
+      <table>
+        <tr><th>ボタン</th><th>内容</th></tr>
+        <tr><td><span class="btn-name">保存</span></td><td>文書をファイル(.json)としてパソコンに保存します。本文・振り仮名などの読み・熟字訓・組み立てた字・設定がすべて入ります。<kbd>Ctrl</kbd>+<kbd>S</kbd>でも保存できます。</td></tr>
+        <tr><td><span class="btn-name">開く</span></td><td>保存したファイルを読み込みます。</td></tr>
+        <tr><td><span class="btn-name">新規作成</span></td><td>何も書かれていない新しい文書にします。</td></tr>
+        <tr><td><span class="btn-name">印刷</span></td><td>ページをそのまま印刷します(A4横)。</td></tr>
+        <tr><td><span class="btn-name">PDFにする</span></td><td>印刷の画面が開くので、送り先で「PDFに保存」を選びます。</td></tr>
+      </table>
+    </section>
+
+    <section id="keys">
+      <h2>ショートカットキー一覧</h2>
+      <h3>交利(エディタ本体)</h3>
+      <table>
+        <tr><th>キー</th><th>内容</th></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd></td><td>元に戻す</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Y</kbd></td><td>やり直す</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>保存</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>A</kbd></td><td>すべて選ぶ</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>X</kbd> / <kbd>V</kbd></td><td>コピー / 切り取り / 貼り付け</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>K</kbd></td><td>記号を上下記号にする</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>O</kbd></td><td>上下記号を記号に戻す</td></tr>
+        <tr><td>矢印キー・<kbd>Shift</kbd>+矢印</td><td>カーソルの移動・範囲の選択</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+ホイール / ピンチ</td><td>表示倍率を変える</td></tr>
+      </table>
+      <h3>字体組立</h3>
+      <table>
+        <tr><th>キー</th><th>内容</th></tr>
+        <tr><td><kbd>Delete</kbd> / <kbd>Backspace</kbd></td><td>選んだ部品を消す</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>V</kbd></td><td>選んだ部品をコピー / 貼り付け</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd></td><td>元に戻す / やり直す</td></tr>
+      </table>
+    </section>
+
+    <section id="kanji">
+      <h2>拡張漢字の表示について</h2>
+      <p>パソコンに入っていない漢字(CJK統合漢字拡張A〜Jなど)は、サイトに入っている字雲(Jigmo)フォントで表示します。どのパソコンでも同じように表示できます。</p>
+      <p>index.html をダブルクリックで開いた場合は、ブラウザによっては字雲が読み込まれず、一部の字が表示されないことがあります。サイトとして公開した状態では表示されます。</p>
+    </section>
+    <section id="credits">
+      <h2>クレジット・ライセンス</h2>
+      <p>交利は、次のものを使わせていただいています。</p>
+      <table>
+        <tr><th>使っているもの</th><th>使い道</th><th>ライセンス</th></tr>
+        <tr><td><a href="https://kamichikoichi.github.io/jigmo/" target="_blank" rel="noopener">字雲(Jigmo)</a><br>上地宏一</td><td>パソコンに入っていない漢字(拡張A〜Jなど)の表示</td><td>CC0 1.0(パブリック・ドメイン)</td></tr>
+        <tr><td><a href="https://www.chise.org/ids/" target="_blank" rel="noopener">CHISE IDS Database</a><br><a href="https://github.com/cjkvi/cjkvi-ids" target="_blank" rel="noopener">CJKVI IDS</a>(CJKVI Database)</td><td>漢字検索の、漢字の組み立てのデータ(複数のファイルを1つにまとめ、検索向けに整理して使っています)</td><td>GNU GPL v2</td></tr>
+        <tr><td><a href="https://github.com/kurgm/kage-engine" target="_blank" rel="noopener">kage-engine</a><br>上地宏一・kurgm</td><td>字体組立での字形の描画</td><td>GNU GPL-3.0</td></tr>
+        <tr><td><a href="https://github.com/kurgm/kage-editor" target="_blank" rel="noopener">kage-editor</a><br>kurgm</td><td>字体組立の部品の検索・取り込みの方法(GlyphWiki の API と、作者が公開している中継サーバーを使用)</td><td>GNU GPL-3.0-only</td></tr>
+        <tr><td><a href="https://glyphwiki.org/" target="_blank" rel="noopener">GlyphWiki</a></td><td>字体組立の部品の字形データ</td><td><a href="https://glyphwiki.org/wiki/GlyphWiki:License" target="_blank" rel="noopener">GlyphWiki:License</a> に従います</td></tr>
+        <tr><td><a href="https://fonts.google.com/noto/specimen/Noto+Sans+JP" target="_blank" rel="noopener">Noto Sans JP</a></td><td>画面の文字の書体</td><td>SIL Open Font License 1.1</td></tr>
+      </table>
+      <p>交利のソースコードは、GitHub で公開しています。詳しくはリポジトリの README をご覧ください。</p>
+    </section>
+  </main>
+</div>
+<footer class="help-footer">
+  クレジット:字雲(Jigmo)上地宏一 CC0 1.0 / CHISE IDS Database・CJKVI IDS GNU GPL v2 / kage-engine GNU GPL-3.0・kage-editor GNU GPL-3.0-only(kurgm)/ GlyphWiki / Noto Sans JP SIL OFL 1.1
+</footer>
+<script>
+  // 漢文エディタの中のウィンドウとして開いたときは、「戻る」リンクを隠し、
+  // 押されたことをエディタに知らせて、このウィンドウを手前に出してもらう
+  if(window.parent && window.parent !== window){
+    var back = document.getElementById('back-link');
+    if(back) back.style.display = 'none';
+    document.addEventListener('pointerdown', function(){ window.parent.postMessage({ type: 'help-activate' }, '*'); }, true);
+  }
+</script>
+</body>
+</html>
