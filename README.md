@@ -33,15 +33,6 @@
 | `icons/` | サイトのアイコン(ブラウザのタブ・ホーム画面に表示) |
 | `manifest.webmanifest` | スマートフォンなどでホーム画面に追加したときの名前・アイコンの設定 |
 
-## GitHub Pages で公開する手順
-
-1. GitHub で新しいリポジトリを作り、このフォルダの中身(`.github` と `.nojekyll` を含む)をすべてアップロードします。
-2. リポジトリの「Add file」→「Create new file」でファイル名に `LICENSE` と入力し、右側に出る「Choose a license template」から「GNU General Public License v3.0」を選んで保存します(下の「ライセンス」を参照)。
-3. 「Settings」→「Pages」で、「Branch」を `main`、フォルダを `/ (root)` にして保存します。数分後に、表示されたアドレスでサイトが開けるようになります。
-4. 辞書を自動で作り直す機能を使う場合は、「Settings」→「Actions」→「General」の「Workflow permissions」を「Read and write permissions」にします。
-
-辞書のテキストファイル(`data/*.txt`)を追加・変更して GitHub に上げると、`data/ids_data.js` が自動で作り直されます。パソコンで作り直すときは、Node.js で `node tools/build_ids_data.js` を実行します。
-
 ## 外部とのやりとり
 
 サイトは利用者のブラウザの中だけで動き、入力した文章をサーバーに送ることはありません。次のものだけ、インターネットから読み込みます。
