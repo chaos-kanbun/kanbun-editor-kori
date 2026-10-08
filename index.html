@@ -425,6 +425,14 @@
     cursor:pointer; font-size:13px;
   }
   .kunten-picker button:hover{ background: var(--dads-primary-hover); }
+  /* 合略仮名のボタン:字と、その下に小さな読み */
+  .picker-grid:has(.picker-with-sub){ grid-template-columns: repeat(4, 52px); }
+  .kunten-picker button.picker-with-sub{
+    width: 52px; height: 44px; padding: 2px 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+  }
+  .picker-with-sub .picker-main{ font-size: 18px; line-height: 1.1; }
+  .picker-with-sub .picker-sub{ font-family: "Noto Sans JP", sans-serif; font-size: 9px; line-height: 1.1; opacity: .9; white-space: nowrap; }
   .picker-close{
     position:absolute; top:3px; right:3px;
     width:18px !important; height:18px !important;
@@ -815,6 +823,21 @@
   const OPEN_BRACKETS = new Set(['「','『','(','（','[','［','{','｛','〈','《','〔','〖']);
 
   // ひらがな→カタカナ変換(送り仮名・左送り仮名用)
+  // 注釈の文字数を、拡張漢字の領域にある合略仮名(𬼀 など)も1字として数える
+  function klen(str){ return Array.from(str || '').length; }
+  function kslice(str, a, b){ return Array.from(str || '').slice(a, b).join(''); }
+
+  // 送り仮名のパネルに出す、和刻本でよく使う合略仮名と踊り字。reading は読み(ボタンの下に小さく出す)
+  const OKURI_SPECIAL_CHARS = [
+    { ch: '〻',  reading: '二の字点' },
+    { ch: '𬼀', reading: 'シテ' },
+    { ch: 'ヿ',  reading: 'コト' },
+    { ch: '𪜈', reading: 'トモ・ドモ' },
+    { ch: 'ゟ',  reading: 'ヨリ' },
+    { ch: '𬻿', reading: 'ナリ' },
+    { ch: '𬼂', reading: 'ナリ' },
+  ];
+
   function hiraToKata(str){
     return str.replace(/[\u3041-\u3096]/g, c => String.fromCharCode(c.charCodeAt(0) + 0x60));
   }
@@ -876,6 +899,8 @@
     kami:   { x: 0,   y: -23 }, // 上記号:上に23px(通常の文字サイズ)
     hFuri:  { x: -14, y: 0 },   // 左振り仮名:左に14px
     hOkuri: { x: -14, y: 8 },   // 左送り仮名:左に14px・下に8px
+    // 左に寄せたハイフン(上記号の「-」):字と字の間の位置から、左に7pxずらす。縦はその位置からのずれ
+    kamiHyphenLeft: { x: -7, y: 0 },
   };
   const NORMAL_SIZE_KEYS = new Set(['kami', 'shimo']); // 通常の文字サイズで表示する項目
   function getAnnoScale(){ return state.annoScalePercent / 100; } // 通常サイズ以外の注釈文字の縮小率(変更可能)
@@ -1064,6 +1089,7 @@
       if(anno.kami){
         const released_kami = anno.kami;
         anno.kami = '';
+        delete anno.kamiLeft;
         shiftAnnotationsFrom(i, released_kami.length);
         text = text.slice(0, i) + released_kami + text.slice(i);
         released += released_kami.length;
@@ -1516,9 +1542,11 @@
         }
 
         // 上記号が半角ハイフンの場合は、一つ前の文字と当該文字のちょうど中間に表示し、縦を1.75倍にする
+        // 「左に寄せる」にしたハイフンは、その位置から ANNO_OFFSETS.kamiHyphenLeft だけずらす
         if(anno.kami === '-'){
           const scale = state.fontSize / ANNO_BASE_SIZE;
-          const kamiSpan = addAnnoSpanXY(el, anno.kami, 1, -(cellH / 2) / scale, true);
+          const hl = anno.kamiLeft ? ANNO_OFFSETS.kamiHyphenLeft : { x: 1, y: 0 };
+          const kamiSpan = addAnnoSpanXY(el, anno.kami, hl.x, -(cellH / 2) / scale + hl.y, true);
           if(kamiSpan) kamiSpan.style.transform += ' scaleY(1.75)';
         } else if(anno.kami){
           addAnnoSpanXY(el, anno.kami, ANNO_OFFSETS.kami.x, ANNO_OFFSETS.kami.y + kamiExtra, true);
@@ -1559,7 +1587,7 @@
         if(anno.hFuri && anno.hOkuri){
           addAnnoSpan(el, anno.hFuri, 'hFuri');
           const hFuriAnnoCharSize = state.fontSize * getAnnoScale();
-          const hFuriHeightPx = anno.hFuri.length * hFuriAnnoCharSize;
+          const hFuriHeightPx = klen(anno.hFuri) * hFuriAnnoCharSize;
           addAnnoSpan(el, anno.hOkuri, 'hOkuri', { topPx: hFuriHeightPx / 2 });
         } else if(anno.hFuri){
           addAnnoSpan(el, anno.hFuri, 'hFuri');
@@ -1597,8 +1625,13 @@
             el.appendChild(span);
           });
         }
+        // 熟字訓の最後の字だけは、送り仮名を付けられる。熟字訓の読みの最後の字のすぐ下から続ける
+        if(anno && anno.okuri && cell.mainIdx === prevCharIdx(text, jkSpan.end)){
+          const annoCharSize = state.fontSize * getAnnoScale();
+          addAnnoSpanXY(el, anno.okuri, 14, 0, false, { topPx: annoCharSize / 2 });
+        }
       } else if(anno && anno.furi && anno.okuri){
-        if(anno.furi.length + anno.okuri.length > 4){
+        if(klen(anno.furi) + klen(anno.okuri) > 4){
           // 文字数が多い場合は、振り仮名と送り仮名を並列の2列で表示する
           addAnnoSpanXY(el, anno.furi,  19, 0, false);
           addAnnoSpanXY(el, anno.okuri, 12, 14, false);
@@ -1606,16 +1639,16 @@
           addAnnoSpan(el, anno.furi, 'furi');
           // 振り仮名の最後の文字の下から続けて表示する(概算の高さで計算)
           const annoCharSize = state.fontSize * getAnnoScale();
-          const furiHeightPx = anno.furi.length * annoCharSize;
+          const furiHeightPx = klen(anno.furi) * annoCharSize;
           addAnnoSpan(el, anno.okuri, 'okuri', { topPx: furiHeightPx / 2 });
         }
       } else if(anno && anno.furi){
         addAnnoSpan(el, anno.furi, 'furi');
       } else if(anno && anno.okuri){
-        if(anno.okuri.length > 4){
+        if(klen(anno.okuri) > 4){
           // 4文字を超える送り仮名は、前半3文字と残りを2列に分けて表示する
-          addAnnoSpanXY(el, anno.okuri.slice(0, 3), 19, 7, false);
-          addAnnoSpanXY(el, anno.okuri.slice(3), 12, 17, false);
+          addAnnoSpanXY(el, kslice(anno.okuri, 0, 3), 19, 7, false);
+          addAnnoSpanXY(el, kslice(anno.okuri, 3), 12, 17, false);
         } else {
           addAnnoSpan(el, anno.okuri, 'okuri');
         }
@@ -1742,10 +1775,22 @@
 
     const grid = document.createElement('div');
     grid.className = 'picker-grid';
-    buttons.forEach(({ label, onClick }) => {
+    buttons.forEach(({ label, onClick, sub, title }) => {
       const b = document.createElement('button');
       b.type = 'button';
-      if(KUNTEN_COMBOS[label]){
+      if(title) b.title = title;
+      if(sub){
+        // 字の下に読みを小さく添える(合略仮名のボタン)
+        b.className = 'picker-with-sub';
+        const main = document.createElement('span');
+        main.className = 'picker-main';
+        main.textContent = label;
+        const small = document.createElement('span');
+        small.className = 'picker-sub';
+        small.textContent = sub;
+        b.appendChild(main);
+        b.appendChild(small);
+      } else if(KUNTEN_COMBOS[label]){
         b.style.writingMode = 'vertical-rl';
         b.style.display = 'flex';
         b.style.alignItems = 'center';
@@ -1784,10 +1829,14 @@
     // 熟字訓が付いている字では、右側には熟字訓の読みが出るので、振り仮名・送り仮名は表示しない。
     // 訓点・上下記号・左振り仮名・左送り仮名は、ほかの字と同じように使える
     const jkOfThis = jukujikunSpans.find(sp => kanjiIdx >= sp.start && kanjiIdx < sp.end);
+    // 熟字訓の最後の字か(最後の字だけは送り仮名を付けられる)
+    const jkIsLast = !!jkOfThis && kanjiIdx === prevCharIdx(hiddenInput.value, jkOfThis.end);
     if(jkOfThis){
       const note = document.createElement('div');
       note.className = 'anno-note';
-      note.textContent = '熟字訓「' + jkOfThis.text + '」が付いているため、振り仮名・送り仮名は表示されません。そのほかは使えます。';
+      note.textContent = jkIsLast
+        ? '熟字訓「' + jkOfThis.text + '」の最後の字です。振り仮名は表示されませんが、送り仮名は付けられます。そのほかも使えます。'
+        : '熟字訓「' + jkOfThis.text + '」が付いているため、振り仮名・送り仮名は表示されません。そのほかは使えます。';
       panel.appendChild(note);
     }
 
@@ -1817,7 +1866,7 @@
       input.type = 'text';
       input.className = 'anno-input';
       input.value = anno[key] || '';
-      if(jkOfThis && (key === 'furi' || key === 'okuri')){
+      if(jkOfThis && (key === 'furi' || (key === 'okuri' && !jkIsLast))){
         input.disabled = true;
         input.title = '熟字訓が付いている字には表示されません';
       }
@@ -1836,6 +1885,7 @@
         }
         if(key === 'kami'){
           v = v.slice(0, 1); // 上記号は1文字まで
+          if(v !== '-') delete anno.kamiLeft;
         }
         if(key === 'shimo'){
           // 下記号は1文字まで。ただし「句読点・！？：;など+閉じ括弧」の組み合わせだけ2文字まで許可
@@ -1864,18 +1914,27 @@
           })));
         });
       }
-      // 送り仮名:クリックで「〻」(二の字点)ボタンを出す
+      // 送り仮名:クリックで「〻」(二の字点)と合略仮名(𬼀 ヿ 𪜈 など)のボタンを出す。
+      // 押すと、入力欄のカーソルの位置に入る(カーソルが無ければ末尾に付く)
       if(key === 'okuri'){
         input.addEventListener('focus', () => {
-          showPicker(wrap.getBoundingClientRect(), [{
-            label: '〻',
+          showPicker(wrap.getBoundingClientRect(), OKURI_SPECIAL_CHARS.map(({ ch, reading }) => ({
+            label: ch,
+            sub: reading,
+            title: ch + '(' + reading + ')',
             onClick: () => {
               pushUndo(true, 'panel:okuri');
-              input.value = hiraToKata(input.value + '〻');
+              const v = input.value;
+              const a = (typeof input.selectionStart === 'number') ? input.selectionStart : v.length;
+              const b = (typeof input.selectionEnd === 'number') ? input.selectionEnd : v.length;
+              input.value = hiraToKata(v.slice(0, a) + ch + v.slice(b));
               anno.okuri = input.value;
               render();
+              const pos = a + ch.length;
+              input.focus();
+              try{ input.setSelectionRange(pos, pos); } catch(err){ /* noop */ }
             }
-          }]);
+          })));
         });
       }
 
@@ -2017,6 +2076,39 @@
         if(jc.multiOld){
           jc.multiOld.forEach(o => addMenuItem('旧字体に変換(' + o + ')', () => { hiddenInput.focus(); hiddenInput.setSelectionRange(s, e); runJitaiConversion('kyu', o); }));
         }
+      }
+    }
+
+    // ハイフン(上記号の「-」)を左に寄せる/字と字の間に戻す。
+    // 範囲を選んでいればその中のハイフン、そうでなければ右クリックした字と次の字の間のハイフンが対象
+    {
+      const txt = hiddenInput.value;
+      const targets = [];
+      const consider = (i) => {
+        if(i < 0 || i >= txt.length) return;
+        const a = annotations.get(i);
+        if(a && a.kami === '-' && !targets.includes(i)) targets.push(i);
+      };
+      if(selLen >= 2){
+        for(let i = s; i < e; i = nextCharIdx(txt, i)) consider(i);
+      } else if(kanjiEl){
+        const ki = Number(kanjiEl.getAttribute('data-idx'));
+        consider(ki);
+        consider(nextCharIdx(txt, ki));
+      }
+      if(targets.length){
+        const allLeft = targets.every(i => annotations.get(i).kamiLeft);
+        addMenuSep();
+        addMenuItem(allLeft ? 'ハイフンを字と字の間に戻す' : 'ハイフンを左に寄せる', () => {
+          pushUndo(true, 'main:hyphenLeft');
+          targets.forEach(i => {
+            const a = annotations.get(i);
+            if(allLeft) delete a.kamiLeft; else a.kamiLeft = true;
+          });
+          closeAnnotationPanel();
+          render();
+          hiddenInput.focus();
+        });
       }
     }
 
@@ -2464,6 +2556,7 @@
     { key: 'shimo',  label: '下記号' },
     { key: 'hFuri',  label: '左振り仮名' },
     { key: 'hOkuri', label: '左送り仮名' },
+    { key: 'kamiHyphenLeft', label: '左に寄せたハイフン' },
   ];
 
   function buildAnnoSliders(){
@@ -3226,6 +3319,7 @@
     annotations.forEach((a, idx) => {
       if(!isKanji(charAtIdx(text, idx))) return;
       const b = Object.assign({}, a, { kami: '', shimo: '' });
+      delete b.kamiLeft;
       next.set(keptBefore[idx], b);
     });
     annotations = next;
