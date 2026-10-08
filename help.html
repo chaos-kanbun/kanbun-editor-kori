@@ -213,10 +213,10 @@
       <p>左の欄のいちばん上に「使い方」ボタン、その下に表示倍率と文字数・ページ数が常に表示されています。その下の各項目は、項目名を押すと中身が開き、もう一度押すと閉じます。</p>
       <table>
         <tr><th>項目</th><th>内容</th></tr>
-        <tr><td>ファイル</td><td>新規作成・開く・保存・印刷・PDFにする(下の「保存・開く・印刷」を参照)。</td></tr>
+        <tr><td>ファイル</td><td>新規作成・開く・上書き保存・名前を付けて保存・印刷・PDFにする(下の「保存・開く・印刷」を参照)。下に、今のファイル名と保存の状態が出ます。</td></tr>
         <tr><td>漢字を探す・作る</td><td>漢字検索・字体組立のウィンドウを開きます。</td></tr>
         <tr><td>文字とページ</td><td>文字サイズ・行間・字間・余白・漢字の太さを数値で変えます。</td></tr>
-        <tr><td>訓読の文字</td><td>振り仮名などの大きさ(漢字に対する割合)と、熟字訓の読みの字間を変えます。</td></tr>
+        <tr><td>訓読の文字</td><td>振り仮名などの大きさ(漢字に対する割合)、送り仮名の太さ、熟字訓の読みの字間を変えます。送り仮名の太さは400が標準で、大きくすると太く、小さくすると細くなります(細くできるのは、パソコンの明朝体に細い太さがある場合だけです)。</td></tr>
         <tr><td>注釈の位置(px)</td><td>振り仮名・送り仮名・訓点・上下記号などの位置を、横と縦に細かく調整します。</td></tr>
         <tr><td>検索・置換</td><td>文字列の置換と、旧字体・新字体の変換を行います。</td></tr>
         <tr><td>記号を消す</td><td>漢字以外の記号をまとめて消します。</td></tr>
@@ -252,12 +252,15 @@
       <p>左の欄の「ファイル」にあるボタンを使います。</p>
       <table>
         <tr><th>ボタン</th><th>内容</th></tr>
-        <tr><td><span class="btn-name">保存</span></td><td>文書をファイル(.json)としてパソコンに保存します。本文・振り仮名などの読み・熟字訓・組み立てた字・設定がすべて入ります。<kbd>Ctrl</kbd>+<kbd>S</kbd>でも保存できます。</td></tr>
-        <tr><td><span class="btn-name">開く</span></td><td>保存したファイルを読み込みます。</td></tr>
+        <tr><td><span class="btn-name">上書き保存</span></td><td>今開いているファイルに、そのまま書き戻します。まだ保存していない文書では、「名前を付けて保存」になります。<kbd>Ctrl</kbd>+<kbd>S</kbd>でも行えます。</td></tr>
+        <tr><td><span class="btn-name">名前を付けて保存</span></td><td>保存する場所と名前を選んで、文書をファイル(.json)として保存します。本文・振り仮名などの読み・熟字訓・組み立てた字・設定がすべて入ります。<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd>でも行えます。</td></tr>
+        <tr><td><span class="btn-name">開く</span></td><td>保存したファイルを読み込みます。開いたファイルには、そのまま上書き保存できます。</td></tr>
         <tr><td><span class="btn-name">新規作成</span></td><td>何も書かれていない新しい文書にします。</td></tr>
         <tr><td><span class="btn-name">印刷</span></td><td>ページをそのまま印刷します(A4横)。</td></tr>
         <tr><td><span class="btn-name">PDFにする</span></td><td>印刷の画面が開くので、送り先で「PDFに保存」を選びます。</td></tr>
       </table>
+      <p class="note">上書き保存ができるのは、パソコンの Chrome と Edge です。初めて上書きするときに、ブラウザが「このファイルを編集しますか」と確かめるので、許可してください。Firefox や Safari、スマートフォンでは上書きができないため、保存するたびに、ダウンロードのフォルダに新しいファイルとして保存されます。</p>
+      <p class="note">保存していない変更があるまま、ページを閉じたり、別のファイルを開いたり、新規作成したりしようとすると、確認が出ます。</p>
     </section>
 
     <section id="keys">
@@ -267,7 +270,8 @@
         <tr><th>キー</th><th>内容</th></tr>
         <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd></td><td>元に戻す</td></tr>
         <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Y</kbd></td><td>やり直す</td></tr>
-        <tr><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>保存</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>上書き保存</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd></td><td>名前を付けて保存</td></tr>
         <tr><td><kbd>Ctrl</kbd>+<kbd>A</kbd></td><td>すべて選ぶ</td></tr>
         <tr><td><kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>X</kbd> / <kbd>V</kbd></td><td>コピー / 切り取り / 貼り付け</td></tr>
         <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>K</kbd></td><td>記号を上下記号にする</td></tr>

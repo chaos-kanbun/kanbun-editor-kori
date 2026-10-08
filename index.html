@@ -161,6 +161,8 @@
   .side-buttons{ display: flex; flex-direction: column; gap: 8px; }
   .side-buttons .btn{ width: 100%; justify-content: center; }
   .side-note{ margin: 0; font-size: 12px; line-height: 1.7; color: var(--dads-muted); }
+  .file-status{ margin-top: 8px; word-break: break-all; }
+  .file-status.is-dirty{ color: #a85b00; }
   .sidebar-heading{
     font-size: 12px;
     font-weight: 700;
@@ -355,6 +357,12 @@
     text-stroke: var(--kanji-stroke, 0.5px) currentColor;
   }
   .cell.cell-selected{ background: var(--dads-tint-blue-selected); }
+  /* 送り仮名の太さ(左の欄の「送り仮名の太さ」)。400より細い値は書体の細いウェイトを使い、太い値は縁取りで太くする */
+  .anno.anno-okuri{
+    font-weight: var(--okuri-font-weight, 400);
+    -webkit-text-stroke: var(--okuri-stroke, 0px) currentColor;
+    text-stroke: var(--okuri-stroke, 0px) currentColor;
+  }
   .anno{
     position:absolute;
     writing-mode: vertical-rl;
@@ -603,10 +611,12 @@
             <button class="btn" id="btn-clear">新規作成</button>
             <button class="btn" id="btn-open">開く</button>
             <input type="file" id="file-open" accept=".json,application/json" style="display:none">
-            <button class="btn" id="btn-save">保存</button>
+            <button class="btn" id="btn-save" title="Ctrl+S">上書き保存</button>
+            <button class="btn" id="btn-save-as" title="Ctrl+Shift+S">名前を付けて保存</button>
             <button class="btn" id="btn-print">印刷</button>
             <button class="btn" id="btn-pdf">PDFにする</button>
           </div>
+          <p class="side-note file-status" id="file-status" aria-live="polite"></p>
         </div>
       </details>
 
@@ -652,6 +662,10 @@
         <div class="control">
           <div class="row"><label style="flex:1" for="ctl-annoscale">訓読文字サイズ(%)</label></div>
           <input type="number" id="ctl-annoscale" step="1" value="45" class="num-input">
+        </div>
+        <div class="control">
+          <div class="row"><label style="flex:1" for="ctl-okuriweight">送り仮名の太さ</label></div>
+          <input type="number" id="ctl-okuriweight" step="10" min="100" max="900" value="400" class="num-input">
         </div>
         <div class="control">
           <div class="row"><label style="flex:1" for="ctl-jukujikungap">熟字訓ルビの字間</label></div>
@@ -781,7 +795,7 @@
     'ァ','ィ','ゥ','ェ','ォ','ッ','ャ','ュ','ョ','ヮ'
   ]);
 
-  const state = { fontSize:20, lineSpacing:36, charSpacing:30, margin:75, annoScalePercent:45, kanjiWeight:650, jukujikunCharSpacing:0, pageNumberFormat:'n-of-m' };
+  const state = { fontSize:20, lineSpacing:36, charSpacing:30, margin:75, annoScalePercent:45, kanjiWeight:650, okuriWeight:400, jukujikunCharSpacing:0, pageNumberFormat:'n-of-m' };
   let cellW, cellH, rowsPerColumn, colsPerPage, contentWidth, contentHeight;
 
   // 漢字判定(漢文注釈の対象)
@@ -1283,6 +1297,11 @@
     root.style.setProperty('--margin', state.margin + 'px');
     root.style.setProperty('--anno-scale', state.annoScalePercent / 100);
     root.style.setProperty('--kanji-stroke', kanjiWeightToStroke(state.kanjiWeight) + 'px');
+    // 送り仮名の太さ:400 より細い値は書体の細いウェイト(游明朝 Light など。無ければ標準)を使い、
+    // 400 より太い値は、字の大きさに合わせた縁取りで少しずつ太くする
+    const ow = Number(state.okuriWeight) || 400;
+    root.style.setProperty('--okuri-font-weight', String(Math.max(100, Math.min(400, Math.round(ow / 100) * 100))));
+    root.style.setProperty('--okuri-stroke', (kanjiWeightToStroke(Math.max(400, ow)) * state.annoScalePercent / 100).toFixed(3) + 'px');
     const kanjiSpace = state.fontSize + 12; // 漢字1字に確保する正方形スペース(注釈表示用)
     cellW = Math.max(state.fontSize + state.lineSpacing, kanjiSpace);   // 列の幅
     cellH = Math.max(state.fontSize + state.charSpacing, kanjiSpace);  // 1文字分の高さ
@@ -1484,6 +1503,9 @@
     return span;
   }
 
+  // 送り仮名(左送り仮名・熟字訓の後の送り仮名を含む)の字に印を付け、送り仮名の太さを当てる
+  function markOkuri(span){ if(span) span.classList.add('anno-okuri'); return span; }
+
   function addAnnoSpan(parent, value, key, opts){
     const off = ANNO_OFFSETS[key];
     return addAnnoSpanXY(parent, value, off.x, off.y, NORMAL_SIZE_KEYS.has(key), opts);
@@ -1588,11 +1610,11 @@
           addAnnoSpan(el, anno.hFuri, 'hFuri');
           const hFuriAnnoCharSize = state.fontSize * getAnnoScale();
           const hFuriHeightPx = klen(anno.hFuri) * hFuriAnnoCharSize;
-          addAnnoSpan(el, anno.hOkuri, 'hOkuri', { topPx: hFuriHeightPx / 2 });
+          markOkuri(addAnnoSpan(el, anno.hOkuri, 'hOkuri', { topPx: hFuriHeightPx / 2 }));
         } else if(anno.hFuri){
           addAnnoSpan(el, anno.hFuri, 'hFuri');
         } else if(anno.hOkuri){
-          addAnnoSpan(el, anno.hOkuri, 'hOkuri');
+          markOkuri(addAnnoSpan(el, anno.hOkuri, 'hOkuri'));
         }
         const kuntenSpan = addAnnoSpan(el, anno.kunten, 'kunten');
         if(kuntenSpan) renderKuntenContent(kuntenSpan, anno.kunten);
@@ -1628,29 +1650,29 @@
         // 熟字訓の最後の字だけは、送り仮名を付けられる。熟字訓の読みの最後の字のすぐ下から続ける
         if(anno && anno.okuri && cell.mainIdx === prevCharIdx(text, jkSpan.end)){
           const annoCharSize = state.fontSize * getAnnoScale();
-          addAnnoSpanXY(el, anno.okuri, 14, 0, false, { topPx: annoCharSize / 2 });
+          markOkuri(addAnnoSpanXY(el, anno.okuri, 14, 0, false, { topPx: annoCharSize / 2 }));
         }
       } else if(anno && anno.furi && anno.okuri){
         if(klen(anno.furi) + klen(anno.okuri) > 4){
           // 文字数が多い場合は、振り仮名と送り仮名を並列の2列で表示する
           addAnnoSpanXY(el, anno.furi,  19, 0, false);
-          addAnnoSpanXY(el, anno.okuri, 12, 14, false);
+          markOkuri(addAnnoSpanXY(el, anno.okuri, 12, 14, false));
         } else {
           addAnnoSpan(el, anno.furi, 'furi');
           // 振り仮名の最後の文字の下から続けて表示する(概算の高さで計算)
           const annoCharSize = state.fontSize * getAnnoScale();
           const furiHeightPx = klen(anno.furi) * annoCharSize;
-          addAnnoSpan(el, anno.okuri, 'okuri', { topPx: furiHeightPx / 2 });
+          markOkuri(addAnnoSpan(el, anno.okuri, 'okuri', { topPx: furiHeightPx / 2 }));
         }
       } else if(anno && anno.furi){
         addAnnoSpan(el, anno.furi, 'furi');
       } else if(anno && anno.okuri){
         if(klen(anno.okuri) > 4){
           // 4文字を超える送り仮名は、前半3文字と残りを2列に分けて表示する
-          addAnnoSpanXY(el, kslice(anno.okuri, 0, 3), 19, 7, false);
-          addAnnoSpanXY(el, kslice(anno.okuri, 3), 12, 17, false);
+          markOkuri(addAnnoSpanXY(el, kslice(anno.okuri, 0, 3), 19, 7, false));
+          markOkuri(addAnnoSpanXY(el, kslice(anno.okuri, 3), 12, 17, false));
         } else {
-          addAnnoSpan(el, anno.okuri, 'okuri');
+          markOkuri(addAnnoSpan(el, anno.okuri, 'okuri'));
         }
       }
 
@@ -2274,6 +2296,7 @@
         margin: state.margin,
         annoScalePercent: state.annoScalePercent,
         kanjiWeight: state.kanjiWeight,
+        okuriWeight: state.okuriWeight,
         jukujikunCharSpacing: state.jukujikunCharSpacing,
         pageNumberFormat: state.pageNumberFormat,
       },
@@ -2282,6 +2305,7 @@
   }
 
   function pushUndo(forceBoundary, source){
+    if(typeof markDocDirty === 'function' && source !== 'main:import') markDocDirty(); // 変更があったことを覚える(保存の状態の表示用)
     const now = Date.now();
     const sameSource = source === undefined || source === lastEditSource;
     if(!forceBoundary && sameSource && undoStack.length > 0 && (now - lastPushTime) < COALESCE_MS){
@@ -2321,6 +2345,7 @@
 
   function undo(){
     if(undoStack.length === 0) return;
+    markDocDirty();
     const cur = snapshotState();
     const prev = undoStack.pop();
     redoStack.push(cur);
@@ -2330,6 +2355,7 @@
 
   function redo(){
     if(redoStack.length === 0) return;
+    markDocDirty();
     const cur = snapshotState();
     const next = redoStack.pop();
     undoStack.push(cur);
@@ -2338,8 +2364,16 @@
   }
 
   // ---------- ファイルの保存・読み込み ----------
-  function exportDocument(){
-    const data = {
+  // Chrome・Edge では、開いたファイルや保存したファイルを覚えておき、「上書き保存」でそのまま書き戻す
+  // (File System Access API)。使えないブラウザ(Firefox・Safari など)では、ダウンロードとして保存する。
+  const CAN_PICK_FILES = typeof window.showOpenFilePicker === 'function' && typeof window.showSaveFilePicker === 'function';
+  const JSON_PICKER_TYPES = [{ description: '交利の文書(JSON)', accept: { 'application/json': ['.json'] } }];
+  let currentFileHandle = null;      // 今の文書の保存先(覚えていれば上書き保存できる)
+  let currentFileName = '';          // 表示用のファイル名
+  let docDirty = false;              // 最後に保存・読み込みしてから変更があるか
+
+  function buildDocumentData(){
+    return {
       version: 1,
       text: hiddenInput.value,
       annotations: [...annotations.entries()],
@@ -2352,20 +2386,135 @@
         margin: state.margin,
         annoScalePercent: state.annoScalePercent,
         kanjiWeight: state.kanjiWeight,
+        okuriWeight: state.okuriWeight,
         jukujikunCharSpacing: state.jukujikunCharSpacing,
         pageNumberFormat: state.pageNumberFormat,
       },
       annoOffsets: ANNO_OFFSETS,
     };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  }
+  function documentJsonText(){ return JSON.stringify(buildDocumentData(), null, 2); }
+
+  // 左の欄の「ファイル」に、今のファイル名と保存の状態を出す
+  function updateFileStatus(){
+    const el = document.getElementById('file-status');
+    if(!el) return;
+    if(!currentFileName){
+      el.textContent = '新しい文書' + (docDirty ? ' ・ まだ保存していません' : '');
+    } else {
+      el.textContent = currentFileName + (docDirty ? ' ・ 保存していない変更があります' : ' ・ 保存済み');
+    }
+    el.classList.toggle('is-dirty', docDirty);
+    document.title = (docDirty ? '● ' : '') + (currentFileName ? currentFileName.replace(/\.json$/i, '') + ' - ' : '') + '漢文エディタ 交利';
+  }
+  function markDocDirty(){ if(!docDirty){ docDirty = true; updateFileStatus(); } }
+  function markDocSaved(name){ if(name) currentFileName = name; docDirty = false; updateFileStatus(); }
+
+  // ダウンロードとして保存する(上書き保存ができないブラウザ用)
+  function downloadDocument(){
+    const blob = new Blob([documentJsonText()], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = '縦書き文書.json';
+    a.download = currentFileName || '縦書き文書.json';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+    markDocSaved(a.download);
+  }
+
+  async function writeToHandle(handle){
+    const writable = await handle.createWritable();
+    await writable.write(documentJsonText());
+    await writable.close();
+    currentFileHandle = handle;
+    markDocSaved(handle.name);
+  }
+
+  // 名前を付けて保存
+  async function saveDocumentAs(){
+    if(!CAN_PICK_FILES){ downloadDocument(); return; }
+    try{
+      const handle = await window.showSaveFilePicker({
+        suggestedName: currentFileName || '縦書き文書.json',
+        types: JSON_PICKER_TYPES,
+      });
+      await writeToHandle(handle);
+    } catch(err){
+      if(err && err.name === 'AbortError') return; // 保存の画面を閉じただけ
+      alert('保存できませんでした。もう一度お試しください。\n(' + (err && err.message ? err.message : err) + ')');
+    }
+  }
+
+  // 上書き保存(保存先が決まっていなければ、名前を付けて保存)
+  async function saveDocument(){
+    if(!CAN_PICK_FILES){ downloadDocument(); return; }
+    if(!currentFileHandle){ await saveDocumentAs(); return; }
+    try{
+      await writeToHandle(currentFileHandle);
+    } catch(err){
+      if(err && err.name === 'AbortError') return;
+      // 書き込みを許可されなかった・ファイルが動かされたなど。名前を付けて保存に切り替える
+      if(confirm('前のファイルに上書きできませんでした。別の名前で保存しますか。')) await saveDocumentAs();
+    }
+  }
+
+  // 保存した文書の中身を、エディタに読み込む
+  function loadDocumentText(jsonText, fileName, handle){
+    let data;
+    try{ data = JSON.parse(jsonText); }
+    catch(err){ alert('ファイルの読み込みに失敗しました。正しい保存ファイルか確認してください。'); return false; }
+    try{
+      pushUndo(true, 'main:import');
+      hiddenInput.value = typeof data.text === 'string' ? data.text : '';
+      annotations = new Map((data.annotations || []).map(([k, v]) => [Number(k), v]));
+      jukujikunSpans = (data.jukujikunSpans || []).map(sp => ({ start: sp.start, end: sp.end, text: sp.text }));
+      // 外字の字形は画像として表示するだけなので、SVG以外の中身は受け付けない
+      gaiji = new Map((data.gaiji || []).filter(([k, v]) => typeof k === 'string' && v && typeof v.svg === 'string' && /^\s*<svg[\s>]/.test(v.svg)));
+      if(data.state){
+        Object.assign(state, data.state);
+        if(data.state.okuriWeight == null) state.okuriWeight = 400; // 送り仮名の太さが無い、古い保存ファイル
+      }
+      if(data.annoOffsets){
+        Object.keys(ANNO_OFFSETS).forEach(key => {
+          if(data.annoOffsets[key]){
+            ANNO_OFFSETS[key].x = data.annoOffsets[key].x;
+            ANNO_OFFSETS[key].y = data.annoOffsets[key].y;
+          }
+        });
+      }
+      prevText = hiddenInput.value;
+      recomputeGeometry();
+      syncSlidersFromState();
+      render();
+      hiddenInput.setSelectionRange(0, 0);
+      hiddenInput.focus();
+      currentFileHandle = handle || null;
+      markDocSaved(fileName || '');
+      return true;
+    } catch(err){
+      alert('ファイルの読み込みに失敗しました。正しい保存ファイルか確認してください。');
+      return false;
+    }
+  }
+
+  // 保存していない変更があるときは、別の文書に切り替える前に確かめる
+  function confirmDiscardChanges(){
+    return !docDirty || confirm('保存していない変更があります。保存せずに進めますか。');
+  }
+
+  async function openDocument(){
+    if(!confirmDiscardChanges()) return;
+    if(!CAN_PICK_FILES){ document.getElementById('file-open').click(); return; }
+    try{
+      const [handle] = await window.showOpenFilePicker({ types: JSON_PICKER_TYPES, multiple: false });
+      const file = await handle.getFile();
+      loadDocumentText(await file.text(), file.name, handle);
+    } catch(err){
+      if(err && err.name === 'AbortError') return;
+      alert('ファイルを開けませんでした。\n(' + (err && err.message ? err.message : err) + ')');
+    }
   }
 
   function syncSlidersFromState(){
@@ -2375,56 +2524,30 @@
     document.getElementById('ctl-margin').value = state.margin;
     document.getElementById('ctl-annoscale').value = state.annoScalePercent;
     document.getElementById('ctl-kanjiweight').value = state.kanjiWeight;
+    document.getElementById('ctl-okuriweight').value = state.okuriWeight;
     document.getElementById('ctl-jukujikungap').value = state.jukujikunCharSpacing;
     syncAnnoSlidersFromOffsets();
   }
 
-  function importDocumentFile(file){
-    const reader = new FileReader();
-    reader.onload = () => {
-      try{
-        const data = JSON.parse(reader.result);
-        pushUndo(true, 'main:import');
-        hiddenInput.value = typeof data.text === 'string' ? data.text : '';
-        annotations = new Map((data.annotations || []).map(([k, v]) => [Number(k), v]));
-        jukujikunSpans = (data.jukujikunSpans || []).map(sp => ({ start: sp.start, end: sp.end, text: sp.text }));
-        // 外字の字形は画像として表示するだけなので、SVG以外の中身は受け付けない
-        gaiji = new Map((data.gaiji || []).filter(([k, v]) => typeof k === 'string' && v && typeof v.svg === 'string' && /^\s*<svg[\s>]/.test(v.svg)));
-        if(data.state){
-          Object.assign(state, data.state);
-        }
-        if(data.annoOffsets){
-          Object.keys(ANNO_OFFSETS).forEach(key => {
-            if(data.annoOffsets[key]){
-              ANNO_OFFSETS[key].x = data.annoOffsets[key].x;
-              ANNO_OFFSETS[key].y = data.annoOffsets[key].y;
-            }
-          });
-        }
-        prevText = hiddenInput.value;
-        recomputeGeometry();
-        syncSlidersFromState();
-        render();
-        hiddenInput.setSelectionRange(0, 0);
-        hiddenInput.focus();
-      } catch(err){
-        alert('ファイルの読み込みに失敗しました。正しい保存ファイルか確認してください。');
-      }
-    };
-    reader.readAsText(file);
-  }
 
-  document.getElementById('btn-save').addEventListener('click', () => {
-    exportDocument();
+  document.getElementById('btn-save').addEventListener('click', async () => {
+    await saveDocument();
     hiddenInput.focus();
   });
-  document.getElementById('btn-open').addEventListener('click', () => {
-    document.getElementById('file-open').click();
+  document.getElementById('btn-save-as').addEventListener('click', async () => {
+    await saveDocumentAs();
+    hiddenInput.focus();
   });
-  document.getElementById('file-open').addEventListener('change', (e) => {
+  document.getElementById('btn-open').addEventListener('click', () => { openDocument(); });
+  // 上書き保存ができないブラウザでは、ふつうのファイル選択で開く
+  document.getElementById('file-open').addEventListener('change', async (e) => {
     const file = e.target.files && e.target.files[0];
-    if(file) importDocumentFile(file);
+    if(file) loadDocumentText(await file.text(), file.name, null);
     e.target.value = '';
+  });
+  // 保存していない変更があるままページを閉じようとしたら、確かめる
+  window.addEventListener('beforeunload', (e) => {
+    if(docDirty){ e.preventDefault(); e.returnValue = ''; }
   });
 
   // Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y(Macは⌘)を、フォーカス位置によらず必ずこちらで処理する
@@ -2435,7 +2558,8 @@
     if(inIdsWindow && (k === 'z' || k === 'y')) return; // 検索欄の文字の取り消しは、その欄の標準動作に任せる
     if(k === 'z' && !e.shiftKey){ e.preventDefault(); undo(); }
     else if((k === 'z' && e.shiftKey) || k === 'y'){ e.preventDefault(); redo(); }
-    else if(k === 's'){ e.preventDefault(); exportDocument(); }
+    else if(k === 's' && e.shiftKey){ e.preventDefault(); saveDocumentAs(); }
+    else if(k === 's'){ e.preventDefault(); saveDocument(); }
     else if(k === 'k' && e.shiftKey){ e.preventDefault(); convertSelectionToAnnotation(); }
     else if(k === 'o' && e.shiftKey){ e.preventDefault(); releaseSelectionAnnotations(); }
   }, true);
@@ -2545,6 +2669,7 @@
   bindSlider('ctl-margin', 'margin');
   bindSlider('ctl-annoscale', 'annoScalePercent');
   bindSlider('ctl-kanjiweight', 'kanjiWeight');
+  bindSlider('ctl-okuriweight', 'okuriWeight');
   bindSlider('ctl-jukujikungap', 'jukujikunCharSpacing');
 
   // ---------- 注釈ごとの位置調整スライダー(px)を動的に生成する ----------
@@ -2688,6 +2813,7 @@
   });
 
   document.getElementById('btn-clear').addEventListener('click', () => {
+    if(!confirmDiscardChanges()) return;
     pushUndo(true, 'clear');
     hiddenInput.value = '';
     annotations = new Map();
@@ -2695,6 +2821,11 @@
     gaiji = new Map();
     prevText = '';
     render();
+    // 新しい文書なので、保存先は忘れる(次の保存は「名前を付けて保存」になる)
+    currentFileHandle = null;
+    currentFileName = '';
+    docDirty = false;
+    updateFileStatus();
     hiddenInput.focus();
   });
 
@@ -3461,6 +3592,7 @@
   recomputeGeometry();
   syncSlidersFromState();
   render();
+  updateFileStatus();
   hiddenInput.focus();
   // 開いたとき、ページが見えている部分の左右の真ん中に来るようにする
   function centerPageInView(){
