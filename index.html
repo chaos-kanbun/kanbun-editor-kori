@@ -161,8 +161,67 @@
   .side-buttons{ display: flex; flex-direction: column; gap: 8px; }
   .side-buttons .btn{ width: 100%; justify-content: center; }
   .side-note{ margin: 0; font-size: 12px; line-height: 1.7; color: var(--dads-muted); }
-  .file-status{ margin-top: 8px; word-break: break-all; }
-  .file-status.is-dirty{ color: #a85b00; }
+  /* ---------- ファイルの操作(右下に浮かべる、濃い色のパネル) ---------- */
+  .workspace-area{ position: relative; flex: 1; min-height: 0; display: flex; }
+  .file-dock{
+    position: absolute; right: 28px; bottom: 22px; z-index: 40;
+    width: 300px;
+    background: #1d2025; color: #f2f2f2;
+    border-radius: 14px;
+    box-shadow: 0 10px 28px rgba(0,0,0,.28), 0 2px 6px rgba(0,0,0,.18);
+    font-family: var(--dads-font);
+    padding: 10px 12px 12px;
+  }
+  .file-dock.is-collapsed{ width: auto; max-width: 300px; padding-bottom: 10px; }
+  .file-dock.is-collapsed .file-dock-body{ display: none; }
+  .file-dock-head{ display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .file-dock-title{
+    flex: none; font-size: 11px; font-weight: 700; letter-spacing: .14em;
+    color: #9fb4ff; padding: 2px 8px; border: 1px solid rgba(159,180,255,.45); border-radius: 999px;
+  }
+  .file-dock-status{
+    flex: 1; min-width: 0; font-size: 12px; color: #d6d6d6;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .file-dock-status::before{
+    content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+    background: #5fd38d; margin-right: 6px; vertical-align: 1px;
+  }
+  .file-dock-status.is-dirty::before{ background: #ffb547; }
+  .file-dock-toggle{
+    flex: none; width: 26px; height: 26px; border: none; border-radius: 8px;
+    background: transparent; color: #cfcfcf; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .file-dock-toggle:hover{ background: rgba(255,255,255,.1); color: #fff; }
+  .file-dock-toggle svg{ transition: transform .15s; }
+  .file-dock.is-collapsed .file-dock-toggle svg{ transform: rotate(180deg); }
+  .file-dock-body{ margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+  .file-dock-group{ display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .fd-btn{
+    font-family: var(--dads-font); font-size: 12px; font-weight: 700; letter-spacing: .02em;
+    padding: 8px 6px; border-radius: 8px; cursor: pointer;
+    background: rgba(255,255,255,.06); color: #f2f2f2; border: 1px solid rgba(255,255,255,.22);
+  }
+  .fd-btn:hover{ background: rgba(255,255,255,.14); }
+  .fd-btn:focus-visible, .file-dock-toggle:focus-visible{ outline: 2px solid #9fb4ff; outline-offset: 2px; }
+  .fd-btn.fd-primary{ background: #fff; color: var(--dads-primary); border-color: #fff; }
+  .fd-btn.fd-primary:hover{ background: var(--dads-tint-blue); }
+  .file-dock-backup{ margin: 4px 0 0; font-size: 11px; line-height: 1.6; color: #a9a9a9; }
+
+  /* 前回の控えを戻すかどうかの案内(右下のパネルの上に出す) */
+  .restore-banner{
+    position: absolute; right: 28px; z-index: 41; width: 300px; box-sizing: border-box;
+    background: var(--dads-canvas); color: var(--dads-ink);
+    border: 1px solid var(--dads-primary); border-radius: 12px;
+    box-shadow: 0 10px 28px rgba(0,0,0,.2);
+    padding: 12px 14px; font-size: 13px; line-height: 1.7;
+  }
+  .restore-banner p{ margin: 0 0 10px; }
+  .restore-banner .restore-actions{ display: flex; gap: 8px; justify-content: flex-end; }
+  .restore-banner .btn{ padding: 6px 12px; font-size: 12px; }
+  .restore-banner .btn.primary{ background: var(--dads-primary); color: #fff; }
+  .restore-banner .btn.primary:hover{ background: var(--dads-primary-hover); }
   .sidebar-heading{
     font-size: 12px;
     font-weight: 700;
@@ -556,9 +615,9 @@
     @page{ size: 297mm 210mm; margin: 0; }
     body{ background:#fff !important; }
     .toolbar, .sidebar, .caret-bar, .hidden-input,
-    .anno-panel, .kunten-picker, .context-menu, .ids-window, .composer-window, .help-window, .site-footer{ display:none !important; }
+    .anno-panel, .kunten-picker, .context-menu, .ids-window, .composer-window, .help-window, .site-footer, .file-dock, .restore-banner{ display:none !important; }
     html, body{ height:auto !important; overflow:visible !important; display:block !important; }
-    .app-body, .main-col{ display:block !important; }
+    .app-body, .main-col, .workspace-area{ display:block !important; }
     .workspace-scroll{ overflow:visible !important; }
     .zoom-stage{ width:auto !important; height:auto !important; }
     .workspace{
@@ -604,21 +663,6 @@
         </div>
       </div>
 
-      <details class="side-section">
-        <summary>ファイル</summary>
-        <div class="side-body">
-          <div class="side-buttons">
-            <button class="btn" id="btn-clear">新規作成</button>
-            <button class="btn" id="btn-open">開く</button>
-            <input type="file" id="file-open" accept=".json,application/json" style="display:none">
-            <button class="btn" id="btn-save" title="Ctrl+S">上書き保存</button>
-            <button class="btn" id="btn-save-as" title="Ctrl+Shift+S">名前を付けて保存</button>
-            <button class="btn" id="btn-print">印刷</button>
-            <button class="btn" id="btn-pdf">PDFにする</button>
-          </div>
-          <p class="side-note file-status" id="file-status" aria-live="polite"></p>
-        </div>
-      </details>
 
       <details class="side-section">
         <summary>漢字を探す・作る</summary>
@@ -712,10 +756,39 @@
     </div>
 
     <div class="main-col">
+      <div class="workspace-area">
       <div class="workspace-scroll" id="workspace-scroll">
         <div class="zoom-stage" id="zoom-stage">
           <div class="workspace" id="workspace"></div>
         </div>
+      </div>
+
+      <!-- ファイルの操作:ほかの設定とは分けて、ページの領域の右下に浮かべて置く -->
+      <section class="file-dock" id="file-dock" aria-label="ファイル">
+        <div class="file-dock-head">
+          <span class="file-dock-title">ファイル</span>
+          <span class="file-dock-status" id="file-status" aria-live="polite"></span>
+          <button type="button" class="file-dock-toggle" id="file-dock-toggle" aria-expanded="true" aria-controls="file-dock-body" title="たたむ">
+            <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M3.5 6l4.5 4.5L12.5 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+        <div class="file-dock-body" id="file-dock-body">
+          <div class="file-dock-group">
+            <button type="button" class="fd-btn" id="btn-clear">新規作成</button>
+            <button type="button" class="fd-btn" id="btn-open">開く</button>
+            <input type="file" id="file-open" accept=".json,application/json" style="display:none">
+          </div>
+          <div class="file-dock-group">
+            <button type="button" class="fd-btn fd-primary" id="btn-save" title="Ctrl+S">上書き保存</button>
+            <button type="button" class="fd-btn" id="btn-save-as" title="Ctrl+Shift+S">名前を付けて保存</button>
+          </div>
+          <div class="file-dock-group">
+            <button type="button" class="fd-btn" id="btn-print">印刷</button>
+            <button type="button" class="fd-btn" id="btn-pdf">PDFにする</button>
+          </div>
+          <p class="file-dock-backup" id="backup-status"></p>
+        </div>
+      </section>
       </div>
       <footer class="site-footer" aria-label="クレジット">
         <strong class="site-footer-lead">本サイトでは、以下の第三者によるソフトウェア、データ、フォント等を利用しています。</strong>
@@ -2395,7 +2468,7 @@
   }
   function documentJsonText(){ return JSON.stringify(buildDocumentData(), null, 2); }
 
-  // 左の欄の「ファイル」に、今のファイル名と保存の状態を出す
+  // 右下の「ファイル」のパネルに、今のファイル名と保存の状態を出す
   function updateFileStatus(){
     const el = document.getElementById('file-status');
     if(!el) return;
@@ -2407,8 +2480,11 @@
     el.classList.toggle('is-dirty', docDirty);
     document.title = (docDirty ? '● ' : '') + (currentFileName ? currentFileName.replace(/\.json$/i, '') + ' - ' : '') + '漢文エディタ 交利';
   }
-  function markDocDirty(){ if(!docDirty){ docDirty = true; updateFileStatus(); } }
-  function markDocSaved(name){ if(name) currentFileName = name; docDirty = false; updateFileStatus(); }
+  function markDocDirty(){
+    if(!docDirty){ docDirty = true; updateFileStatus(); }
+    scheduleBackup();
+  }
+  function markDocSaved(name){ if(name) currentFileName = name; docDirty = false; updateFileStatus(); scheduleBackup(); }
 
   // ダウンロードとして保存する(上書き保存ができないブラウザ用)
   function downloadDocument(){
@@ -2425,6 +2501,13 @@
   }
 
   async function writeToHandle(handle){
+    // 控えから戻したファイルなどは、書き込みの許可をもう一度もらう必要がある
+    if(typeof handle.queryPermission === 'function'){
+      const opts = { mode: 'readwrite' };
+      if((await handle.queryPermission(opts)) !== 'granted' && (await handle.requestPermission(opts)) !== 'granted'){
+        throw new Error('書き込みが許可されませんでした');
+      }
+    }
     const writable = await handle.createWritable();
     await writable.write(documentJsonText());
     await writable.close();
@@ -2497,6 +2580,147 @@
       alert('ファイルの読み込みに失敗しました。正しい保存ファイルか確認してください。');
       return false;
     }
+  }
+
+  // ---------- ブラウザの中への自動の控え ----------
+  // 文書を変えると、少し間をおいて、このブラウザの中(IndexedDB)に控えを取る。
+  // 次にサイトを開いたとき、控えがあれば「前回の続きを戻しますか」と案内する。
+  // 控えはこのパソコンのこのブラウザの中だけにあり、ほかの人やほかの端末からは見えない。
+  const BACKUP_DB = 'kouri-editor', BACKUP_STORE = 'backup', BACKUP_KEY = 'current';
+  const BACKUP_DELAY_MS = 2000;
+  let backupTimer = null;
+  let backupDbPromise = null;
+  let backupReady = false; // 起動時の「戻しますか」の判断が済むまでは、控えを上書きしない
+
+  function openBackupDb(){
+    if(backupDbPromise) return backupDbPromise;
+    backupDbPromise = new Promise((resolve, reject) => {
+      try{
+        const req = indexedDB.open(BACKUP_DB, 1);
+        req.onupgradeneeded = () => { req.result.createObjectStore(BACKUP_STORE); };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      } catch(err){ reject(err); }
+    });
+    return backupDbPromise;
+  }
+  async function backupPut(value){
+    const db = await openBackupDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(BACKUP_STORE, 'readwrite');
+      tx.objectStore(BACKUP_STORE).put(value, BACKUP_KEY);
+      tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); tx.onabort = () => reject(tx.error);
+    });
+  }
+  async function backupGet(){
+    const db = await openBackupDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(BACKUP_STORE, 'readonly');
+      const req = tx.objectStore(BACKUP_STORE).get(BACKUP_KEY);
+      req.onsuccess = () => resolve(req.result || null); req.onerror = () => reject(req.error);
+    });
+  }
+
+  function formatClock(t){
+    const d = new Date(t);
+    const pad = n => String(n).padStart(2, '0');
+    const today = new Date();
+    const sameDay = d.toDateString() === today.toDateString();
+    return (sameDay ? '' : (d.getMonth() + 1) + '月' + d.getDate() + '日 ') + pad(d.getHours()) + ':' + pad(d.getMinutes());
+  }
+  function setBackupStatus(text){
+    const el = document.getElementById('backup-status');
+    if(el) el.textContent = text;
+  }
+
+  async function writeBackupNow(){
+    clearTimeout(backupTimer); backupTimer = null;
+    if(!backupReady) return;
+    const record = {
+      savedAt: Date.now(),
+      json: documentJsonText(),
+      fileName: currentFileName,
+      dirty: docDirty,
+      hasText: hiddenInput.value.length > 0,
+    };
+    try{
+      // Chrome・Edge では、上書き保存の保存先もいっしょに控える(戻したあとも上書き保存できるように)
+      try{ await backupPut(Object.assign({ handle: currentFileHandle }, record)); }
+      catch(err){ await backupPut(record); }
+      setBackupStatus('このブラウザに自動で控えを取りました(' + formatClock(record.savedAt) + ')');
+    } catch(err){
+      setBackupStatus('このブラウザでは自動の控えを取れません。こまめに保存してください。');
+    }
+  }
+  function scheduleBackup(){
+    if(!backupReady) return;
+    clearTimeout(backupTimer);
+    backupTimer = setTimeout(writeBackupNow, BACKUP_DELAY_MS);
+  }
+  // 画面を閉じる・別のタブに移るときは、待たずにすぐ控える
+  document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'hidden' && backupTimer) writeBackupNow(); });
+  window.addEventListener('pagehide', () => { if(backupTimer) writeBackupNow(); });
+
+  function hideRestoreBanner(){
+    const b = document.getElementById('restore-banner');
+    if(b) b.remove();
+  }
+  // 起動時:控えがあれば、戻すかどうかを右下に案内する
+  async function checkBackupOnStartup(){
+    let rec = null;
+    try{ rec = await backupGet(); }
+    catch(err){
+      setBackupStatus('このブラウザでは自動の控えを取れません。こまめに保存してください。');
+      return; // 控えが使えない環境(プライベートブラウズなど)
+    }
+    if(!rec || !rec.hasText || hiddenInput.value.length > 0){
+      backupReady = true;
+      setBackupStatus('文書を書くと、このブラウザに自動で控えを取ります。');
+      return;
+    }
+    const dock = document.getElementById('file-dock');
+    const banner = document.createElement('div');
+    banner.className = 'restore-banner';
+    banner.id = 'restore-banner';
+    banner.setAttribute('role', 'dialog');
+    banner.setAttribute('aria-label', '前回の控え');
+    const p = document.createElement('p');
+    p.textContent = '前回 ' + formatClock(rec.savedAt) + ' に書いていた文書'
+      + (rec.fileName ? '(' + rec.fileName + ')' : '')
+      + 'の控えがあります。' + (rec.dirty ? '保存していない変更も含まれています。' : '') + '戻しますか。';
+    const actions = document.createElement('div');
+    actions.className = 'restore-actions';
+    const discard = document.createElement('button');
+    discard.type = 'button'; discard.className = 'btn'; discard.textContent = '戻さない';
+    const restore = document.createElement('button');
+    restore.type = 'button'; restore.className = 'btn primary'; restore.textContent = '戻す';
+    actions.appendChild(discard); actions.appendChild(restore);
+    banner.appendChild(p); banner.appendChild(actions);
+    dock.parentNode.appendChild(banner);
+    const placeBanner = () => { banner.style.bottom = (dock.offsetHeight + 22 + 10) + 'px'; };
+    placeBanner();
+    window.addEventListener('resize', placeBanner);
+
+    restore.addEventListener('click', () => {
+      hideRestoreBanner();
+      if(loadDocumentText(rec.json, rec.fileName || '', rec.handle || null)){
+        if(rec.dirty){ docDirty = true; updateFileStatus(); }
+      }
+      backupReady = true;
+      writeBackupNow();
+    });
+    discard.addEventListener('click', () => {
+      hideRestoreBanner();
+      backupReady = true;
+      setBackupStatus('文書を書くと、このブラウザに自動で控えを取ります。');
+      // 控えはまだ消さない。次に何か書いた時点で、新しい控えに置き換わる
+      hiddenInput.focus();
+    });
+    // 戻さずに書き始めたときは、案内を閉じて新しい文書の控えに切り替える
+    hiddenInput.addEventListener('input', function onFirstInput(){
+      hiddenInput.removeEventListener('input', onFirstInput);
+      if(document.getElementById('restore-banner')){ hideRestoreBanner(); backupReady = true; scheduleBackup(); }
+    });
   }
 
   // 保存していない変更があるときは、別の文書に切り替える前に確かめる
@@ -3594,6 +3818,29 @@
   render();
   updateFileStatus();
   hiddenInput.focus();
+
+  // 右下のファイルのパネルは、たたんだ状態をこのブラウザに覚えておく
+  {
+    const dock = document.getElementById('file-dock');
+    const toggle = document.getElementById('file-dock-toggle');
+    const setCollapsed = (c) => {
+      dock.classList.toggle('is-collapsed', c);
+      toggle.setAttribute('aria-expanded', String(!c));
+      toggle.title = c ? 'ひらく' : 'たたむ';
+      const banner = document.getElementById('restore-banner');
+      if(banner) banner.style.bottom = (dock.offsetHeight + 22 + 10) + 'px';
+    };
+    let collapsed = false;
+    try{ collapsed = localStorage.getItem('kouri-file-dock-collapsed') === '1'; } catch(err){ /* noop */ }
+    setCollapsed(collapsed);
+    toggle.addEventListener('click', () => {
+      collapsed = !dock.classList.contains('is-collapsed');
+      setCollapsed(collapsed);
+      try{ localStorage.setItem('kouri-file-dock-collapsed', collapsed ? '1' : '0'); } catch(err){ /* noop */ }
+      hiddenInput.focus();
+    });
+  }
+  checkBackupOnStartup();
   // 開いたとき、ページが見えている部分の左右の真ん中に来るようにする
   function centerPageInView(){
     workspaceScroll.scrollLeft = Math.max(0, (workspaceScroll.scrollWidth - workspaceScroll.clientWidth) / 2);

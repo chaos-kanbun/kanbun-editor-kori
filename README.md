@@ -15,7 +15,7 @@
 - 旧字体と新字体の変換
 - 漢字検索:部首・部品を選ぶと、それを多く含む字から順に表示(形の同じ仲間の部品や、細かく分けた部品でも探せます)
 - 字体組立:GlyphWiki の部品を組み合わせて、Unicode に無い字を作って本文に入れる
-- 保存(.json)・読み込み・印刷・PDF、表示倍率(ピンチ・Ctrl+ホイール)、ページ番号の表記の選択
+- 上書き保存・名前を付けて保存(.json、上書きは Chrome・Edge)・読み込み・ブラウザ内への自動の控え・印刷・PDF、表示倍率(ピンチ・Ctrl+ホイール)、ページ番号の表記の選択
 
 ## フォルダの中身
 
@@ -33,9 +33,18 @@
 | `icons/` | サイトのアイコン(ブラウザのタブ・ホーム画面に表示) |
 | `manifest.webmanifest` | スマートフォンなどでホーム画面に追加したときの名前・アイコンの設定 |
 
+## GitHub Pages で公開する手順
+
+1. GitHub で新しいリポジトリを作り、このフォルダの中身(`.github` と `.nojekyll` を含む)をすべてアップロードします。
+2. リポジトリの「Add file」→「Create new file」でファイル名に `LICENSE` と入力し、右側に出る「Choose a license template」から「GNU General Public License v3.0」を選んで保存します(下の「ライセンス」を参照)。
+3. 「Settings」→「Pages」で、「Branch」を `main`、フォルダを `/ (root)` にして保存します。数分後に、表示されたアドレスでサイトが開けるようになります。
+4. 辞書を自動で作り直す機能を使う場合は、「Settings」→「Actions」→「General」の「Workflow permissions」を「Read and write permissions」にします。
+
+辞書のテキストファイル(`data/*.txt`)を追加・変更して GitHub に上げると、`data/ids_data.js` が自動で作り直されます。パソコンで作り直すときは、Node.js で `node tools/build_ids_data.js` を実行します。
+
 ## 外部とのやりとり
 
-サイトは利用者のブラウザの中だけで動き、入力した文章をサーバーに送ることはありません。次のものだけ、インターネットから読み込みます。
+サイトは利用者のブラウザの中だけで動き、入力した文章をサーバーに送ることはありません。自動の控えも、利用者のブラウザの中(IndexedDB)にだけ置かれます。次のものだけ、インターネットから読み込みます。
 
 - 画面の書体(Google Fonts の Noto Sans JP)
 - 字体組立を開いたとき:kage-engine(unpkg / jsDelivr から読み込み)、GlyphWiki の部品の画像と字形データ(kage-editor の作者が公開している中継サーバーを経由)
@@ -57,6 +66,8 @@
 辞書データ(GNU GPL v2)は、プログラムとは別の独立したデータとして、同じリポジトリに置いています。プログラムは辞書データを読み込んで使うだけで、辞書データは元の GNU GPL v2 の条件のまま再配布しています(出所と加えた変更は `data/README.md` に記載しています)。
 
 ## クレジット
+
+本サイトでは、以下の第三者によるソフトウェア、データ、フォント等を利用しています。
 
 - [字雲(Jigmo)](https://kamichikoichi.github.io/jigmo/) — 上地宏一。CC0 1.0
 - [CHISE IDS Database](https://www.chise.org/ids/) — CHISE プロジェクト。GNU GPL v2
