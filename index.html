@@ -437,6 +437,12 @@
     -webkit-text-stroke: var(--okuri-stroke, 0px) currentColor;
     text-stroke: var(--okuri-stroke, 0px) currentColor;
   }
+  /* 訓点の太さ(左の欄の「訓点の太さ」)。仕組みは送り仮名と同じ */
+  .anno.anno-kunten{
+    font-weight: var(--kunten-font-weight, 400);
+    -webkit-text-stroke: var(--kunten-stroke, 0px) currentColor;
+    text-stroke: var(--kunten-stroke, 0px) currentColor;
+  }
   .anno{
     position:absolute;
     writing-mode: vertical-rl;
@@ -453,6 +459,25 @@
   }
   .anno-normal-size{ font-size: 1em; }
 
+  /* 上記号のハイフン:ページ番号と同じく、触れると押せることが分かるようにする */
+  .anno.hyphen-mark{
+    pointer-events: auto; cursor: pointer;
+    padding: 2px 5px; border-radius: 3px;
+  }
+  .anno.hyphen-mark:hover{ background: rgba(0,23,193,.10); color: var(--dads-primary); }
+  .hyphen-panel{ padding: 8px 10px; }
+  .hyphen-panel-title{ font-size: 12px; font-weight: 700; color: var(--dads-ink); margin: 0 0 4px; }
+  .hyphen-row .anno-label{ width: 24px; min-width: 24px; }
+  .hyphen-input{ width: 56px !important; text-align: center; }
+  .hyphen-step{
+    width: 26px; height: 26px; border-radius: 6px; cursor: pointer;
+    border: 1px solid var(--dads-primary); background: var(--dads-canvas); color: var(--dads-primary);
+    font-size: 13px; line-height: 1; padding: 0;
+  }
+  .hyphen-step:hover{ background: var(--dads-tint-blue); }
+  .hyphen-unit{ font-size: 11px; color: var(--dads-muted); }
+  .hyphen-actions{ display: flex; gap: 6px; margin: 8px 0 4px; }
+  .hyphen-actions .btn{ padding: 5px 10px; font-size: 12px; }
   .anno-panel{
     position: fixed;
     background: var(--dads-canvas);
@@ -724,7 +749,11 @@
         </div>
         <div class="control">
           <div class="row"><label style="flex:1" for="ctl-okuriweight">送り仮名の太さ</label></div>
-          <input type="number" id="ctl-okuriweight" step="10" min="100" max="900" value="400" class="num-input">
+          <input type="number" id="ctl-okuriweight" step="10" min="100" value="900" class="num-input">
+        </div>
+        <div class="control">
+          <div class="row"><label style="flex:1" for="ctl-kuntenweight">訓点の太さ</label></div>
+          <input type="number" id="ctl-kuntenweight" step="10" min="100" value="900" class="num-input">
         </div>
         <div class="control">
           <div class="row"><label style="flex:1" for="ctl-jukujikungap">熟字訓ルビの字間</label></div>
@@ -885,7 +914,7 @@
     'ァ','ィ','ゥ','ェ','ォ','ッ','ャ','ュ','ョ','ヮ'
   ]);
 
-  const state = { fontSize:20, lineSpacing:36, charSpacing:30, margin:75, annoScalePercent:45, kanjiWeight:650, okuriWeight:400, jukujikunCharSpacing:0, pageNumberFormat:'n-of-m' };
+  const state = { fontSize:20, lineSpacing:36, charSpacing:30, margin:75, annoScalePercent:45, kanjiWeight:650, okuriWeight:900, kuntenWeight:900, jukujikunCharSpacing:0, pageNumberFormat:'n-of-m' };
   let cellW, cellH, rowsPerColumn, colsPerPage, contentWidth, contentHeight;
 
   // 漢字判定(漢文注釈の対象)
@@ -1003,8 +1032,6 @@
     kami:   { x: 0,   y: -23 }, // 上記号:上に23px(通常の文字サイズ)
     hFuri:  { x: -14, y: 0 },   // 左振り仮名:左に14px
     hOkuri: { x: -14, y: 8 },   // 左送り仮名:左に14px・下に8px
-    // 左に寄せたハイフン(上記号の「-」):字と字の間の位置から、左に7pxずらす。縦はその位置からのずれ
-    kamiHyphenLeft: { x: -7, y: 0 },
   };
   const NORMAL_SIZE_KEYS = new Set(['kami', 'shimo']); // 通常の文字サイズで表示する項目
   function getAnnoScale(){ return state.annoScalePercent / 100; } // 通常サイズ以外の注釈文字の縮小率(変更可能)
@@ -1193,7 +1220,7 @@
       if(anno.kami){
         const released_kami = anno.kami;
         anno.kami = '';
-        delete anno.kamiLeft;
+        delete anno.kamiLeft; delete anno.kamiDx; delete anno.kamiDy;
         shiftAnnotationsFrom(i, released_kami.length);
         text = text.slice(0, i) + released_kami + text.slice(i);
         released += released_kami.length;
@@ -1389,9 +1416,13 @@
     root.style.setProperty('--kanji-stroke', kanjiWeightToStroke(state.kanjiWeight) + 'px');
     // 送り仮名の太さ:400 より細い値は書体の細いウェイト(游明朝 Light など。無ければ標準)を使い、
     // 400 より太い値は、字の大きさに合わせた縁取りで少しずつ太くする
-    const ow = Number(state.okuriWeight) || 400;
-    root.style.setProperty('--okuri-font-weight', String(Math.max(100, Math.min(400, Math.round(ow / 100) * 100))));
-    root.style.setProperty('--okuri-stroke', (kanjiWeightToStroke(Math.max(400, ow)) * state.annoScalePercent / 100).toFixed(3) + 'px');
+    const setAnnoWeight = (name, w) => {
+      w = Number(w) || 400;
+      root.style.setProperty('--' + name + '-font-weight', String(Math.max(100, Math.min(400, Math.round(w / 100) * 100))));
+      root.style.setProperty('--' + name + '-stroke', (kanjiWeightToStroke(Math.max(400, w)) * state.annoScalePercent / 100).toFixed(3) + 'px');
+    };
+    setAnnoWeight('okuri', state.okuriWeight);
+    setAnnoWeight('kunten', state.kuntenWeight);
     const kanjiSpace = state.fontSize + 12; // 漢字1字に確保する正方形スペース(注釈表示用)
     cellW = Math.max(state.fontSize + state.lineSpacing, kanjiSpace);   // 列の幅
     cellH = Math.max(state.fontSize + state.charSpacing, kanjiSpace);  // 1文字分の高さ
@@ -1654,11 +1685,21 @@
         }
 
         // 上記号が半角ハイフンの場合は、一つ前の文字と当該文字のちょうど中間に表示し、縦を1.75倍にする
-        // 「左に寄せる」にしたハイフンは、その位置から ANNO_OFFSETS.kamiHyphenLeft だけずらす
+        // ハイフンごとに、押して出るパネルで位置をずらせる(kamiDx・kamiDy、文字の大きさ20pxのときのpx)
         if(anno.kami === '-'){
           const scale = state.fontSize / ANNO_BASE_SIZE;
-          const hl = anno.kamiLeft ? ANNO_OFFSETS.kamiHyphenLeft : { x: 1, y: 0 };
-          const kamiSpan = addAnnoSpanXY(el, anno.kami, hl.x, -(cellH / 2) / scale + hl.y, true);
+          const hd = hyphenOffsetOf(anno);
+          const kamiSpan = addAnnoSpanXY(el, anno.kami, 1 + hd.dx, -(cellH / 2) / scale + hd.dy, true);
+          if(kamiSpan){
+            kamiSpan.classList.add('hyphen-mark');
+            kamiSpan.title = '押すと、このハイフンの位置を変えられます';
+            const hIdx = cell.mainIdx;
+            kamiSpan.addEventListener('mousedown', (e) => { e.stopPropagation(); e.preventDefault(); });
+            kamiSpan.addEventListener('click', (e) => {
+              e.stopPropagation(); // 押した直後にパネルが閉じないように
+              openHyphenPanel(hIdx, kamiSpan.getBoundingClientRect());
+            });
+          }
           if(kamiSpan) kamiSpan.style.transform += ' scaleY(1.75)';
         } else if(anno.kami){
           addAnnoSpanXY(el, anno.kami, ANNO_OFFSETS.kami.x, ANNO_OFFSETS.kami.y + kamiExtra, true);
@@ -1707,7 +1748,7 @@
           markOkuri(addAnnoSpan(el, anno.hOkuri, 'hOkuri'));
         }
         const kuntenSpan = addAnnoSpan(el, anno.kunten, 'kunten');
-        if(kuntenSpan) renderKuntenContent(kuntenSpan, anno.kunten);
+        if(kuntenSpan){ kuntenSpan.classList.add('anno-kunten'); renderKuntenContent(kuntenSpan, anno.kunten); }
       }
 
       // 振り仮名・送り仮名:文字数に応じて配置を切り替える
@@ -1868,6 +1909,107 @@
     if(pickerEl){ pickerEl.remove(); pickerEl = null; }
   }
 
+  // ---------- ハイフンの位置のパネル ----------
+  // 上記号のハイフンを押すと出る。押したハイフン1つだけを、横・縦にずらせる
+  const HYPHEN_LEFT_DX = -8; // 「左に寄せる」で寄せる量(文字の大きさ20pxのときのpx)
+  function hyphenOffsetOf(anno){
+    // 以前の「左に寄せる」(kamiLeft)で保存したものは、左に寄せた位置として扱う
+    const dx = (typeof anno.kamiDx === 'number') ? anno.kamiDx : (anno.kamiLeft ? HYPHEN_LEFT_DX : 0);
+    const dy = (typeof anno.kamiDy === 'number') ? anno.kamiDy : 0;
+    return { dx, dy };
+  }
+  function openHyphenPanel(idx, rect){
+    closeAnnotationPanel();
+    hideContextMenu();
+    const panel = document.createElement('div');
+    panel.className = 'anno-panel hyphen-panel';
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-label', 'ハイフンの位置');
+
+    const title = document.createElement('div');
+    title.className = 'hyphen-panel-title';
+    title.textContent = 'ハイフンの位置';
+    panel.appendChild(title);
+
+    const inputs = {};
+    const current = () => annotations.get(idx);
+    const apply = (dx, dy, boundary) => {
+      const a = current();
+      if(!a || a.kami !== '-') return;
+      pushUndo(!!boundary, 'hyphen:' + idx);
+      a.kamiDx = dx; a.kamiDy = dy;
+      delete a.kamiLeft;
+      inputs.dx.value = dx; inputs.dy.value = dy;
+      render();
+    };
+    const makeRow = (key, label, minusLabel, plusLabel) => {
+      const row = document.createElement('div');
+      row.className = 'anno-row hyphen-row';
+      const lab = document.createElement('div');
+      lab.className = 'anno-label';
+      lab.textContent = label;
+      const minus = document.createElement('button');
+      minus.type = 'button'; minus.className = 'hyphen-step'; minus.textContent = minusLabel;
+      minus.title = (key === 'dx' ? '左' : '上') + 'へ1px';
+      const input = document.createElement('input');
+      input.type = 'number'; input.step = '1'; input.className = 'anno-input hyphen-input';
+      const plus = document.createElement('button');
+      plus.type = 'button'; plus.className = 'hyphen-step'; plus.textContent = plusLabel;
+      plus.title = (key === 'dx' ? '右' : '下') + 'へ1px';
+      const unit = document.createElement('span');
+      unit.className = 'hyphen-unit'; unit.textContent = 'px';
+      const step = (d) => {
+        const o = hyphenOffsetOf(current());
+        if(key === 'dx') apply(o.dx + d, o.dy, true); else apply(o.dx, o.dy + d, true);
+      };
+      minus.addEventListener('click', (e) => { e.stopPropagation(); step(-1); });
+      plus.addEventListener('click', (e) => { e.stopPropagation(); step(1); });
+      input.addEventListener('input', () => {
+        const n = Number(input.value);
+        if(input.value === '' || Number.isNaN(n)) return;
+        const o = hyphenOffsetOf(current());
+        if(key === 'dx') apply(n, o.dy, false); else apply(o.dx, n, false);
+      });
+      inputs[key] = input;
+      row.appendChild(lab); row.appendChild(minus); row.appendChild(input); row.appendChild(plus); row.appendChild(unit);
+      panel.appendChild(row);
+    };
+    makeRow('dx', '横', '←', '→');
+    makeRow('dy', '縦', '↑', '↓');
+    const o0 = hyphenOffsetOf(current());
+    inputs.dx.value = o0.dx; inputs.dy.value = o0.dy;
+
+    const btnRow = document.createElement('div');
+    btnRow.className = 'hyphen-actions';
+    const leftBtn = document.createElement('button');
+    leftBtn.type = 'button'; leftBtn.className = 'btn'; leftBtn.textContent = '左に寄せる';
+    leftBtn.addEventListener('click', (e) => { e.stopPropagation(); apply(HYPHEN_LEFT_DX, 0, true); });
+    const resetBtn = document.createElement('button');
+    resetBtn.type = 'button'; resetBtn.className = 'btn'; resetBtn.textContent = '字と字の間に戻す';
+    resetBtn.addEventListener('click', (e) => { e.stopPropagation(); apply(0, 0, true); });
+    btnRow.appendChild(leftBtn); btnRow.appendChild(resetBtn);
+    panel.appendChild(btnRow);
+
+    const note = document.createElement('div');
+    note.className = 'anno-note';
+    note.textContent = '押したハイフンだけが動きます。数値は、文字の大きさ20pxのときの量です。';
+    panel.appendChild(note);
+
+    panel.addEventListener('keydown', (e) => {
+      if(e.key === 'Escape' || e.key === 'Enter'){ e.preventDefault(); closeAnnotationPanel(); hiddenInput.focus(); }
+    });
+
+    document.body.appendChild(panel);
+    const pr = panel.getBoundingClientRect();
+    let left = rect.right + 10;
+    if(left + pr.width > window.innerWidth - 4) left = rect.left - pr.width - 10;
+    let top = rect.top - pr.height / 2;
+    top = Math.max(4, Math.min(top, window.innerHeight - pr.height - 4));
+    panel.style.left = Math.max(4, left) + 'px';
+    panel.style.top = top + 'px';
+    annoPanelEl = panel;
+  }
+
   function closeAnnotationPanel(){
     if(annoPanelEl){ annoPanelEl.remove(); annoPanelEl = null; }
     closePicker();
@@ -1997,7 +2139,7 @@
         }
         if(key === 'kami'){
           v = v.slice(0, 1); // 上記号は1文字まで
-          if(v !== '-') delete anno.kamiLeft;
+          if(v !== '-'){ delete anno.kamiLeft; delete anno.kamiDx; delete anno.kamiDy; }
         }
         if(key === 'shimo'){
           // 下記号は1文字まで。ただし「句読点・！？：;など+閉じ括弧」の組み合わせだけ2文字まで許可
@@ -2191,39 +2333,6 @@
       }
     }
 
-    // ハイフン(上記号の「-」)を左に寄せる/字と字の間に戻す。
-    // 範囲を選んでいればその中のハイフン、そうでなければ右クリックした字と次の字の間のハイフンが対象
-    {
-      const txt = hiddenInput.value;
-      const targets = [];
-      const consider = (i) => {
-        if(i < 0 || i >= txt.length) return;
-        const a = annotations.get(i);
-        if(a && a.kami === '-' && !targets.includes(i)) targets.push(i);
-      };
-      if(selLen >= 2){
-        for(let i = s; i < e; i = nextCharIdx(txt, i)) consider(i);
-      } else if(kanjiEl){
-        const ki = Number(kanjiEl.getAttribute('data-idx'));
-        consider(ki);
-        consider(nextCharIdx(txt, ki));
-      }
-      if(targets.length){
-        const allLeft = targets.every(i => annotations.get(i).kamiLeft);
-        addMenuSep();
-        addMenuItem(allLeft ? 'ハイフンを字と字の間に戻す' : 'ハイフンを左に寄せる', () => {
-          pushUndo(true, 'main:hyphenLeft');
-          targets.forEach(i => {
-            const a = annotations.get(i);
-            if(allLeft) delete a.kamiLeft; else a.kamiLeft = true;
-          });
-          closeAnnotationPanel();
-          render();
-          hiddenInput.focus();
-        });
-      }
-    }
-
     if(selLen >= 2){
       addMenuSep();
       addMenuItem('熟字訓を入力', () => {
@@ -2387,6 +2496,7 @@
         annoScalePercent: state.annoScalePercent,
         kanjiWeight: state.kanjiWeight,
         okuriWeight: state.okuriWeight,
+        kuntenWeight: state.kuntenWeight,
         jukujikunCharSpacing: state.jukujikunCharSpacing,
         pageNumberFormat: state.pageNumberFormat,
       },
@@ -2477,6 +2587,7 @@
         annoScalePercent: state.annoScalePercent,
         kanjiWeight: state.kanjiWeight,
         okuriWeight: state.okuriWeight,
+        kuntenWeight: state.kuntenWeight,
         jukujikunCharSpacing: state.jukujikunCharSpacing,
         pageNumberFormat: state.pageNumberFormat,
       },
@@ -2574,7 +2685,9 @@
       gaiji = new Map((data.gaiji || []).filter(([k, v]) => typeof k === 'string' && v && typeof v.svg === 'string' && /^\s*<svg[\s>]/.test(v.svg)));
       if(data.state){
         Object.assign(state, data.state);
-        if(data.state.okuriWeight == null) state.okuriWeight = 400; // 送り仮名の太さが無い、古い保存ファイル
+        // 送り仮名・訓点の太さが無い、古い保存ファイルは初期値にする
+        if(data.state.okuriWeight == null) state.okuriWeight = 900;
+        if(data.state.kuntenWeight == null) state.kuntenWeight = 900;
       }
       if(data.annoOffsets){
         Object.keys(ANNO_OFFSETS).forEach(key => {
@@ -2763,6 +2876,7 @@
     document.getElementById('ctl-annoscale').value = state.annoScalePercent;
     document.getElementById('ctl-kanjiweight').value = state.kanjiWeight;
     document.getElementById('ctl-okuriweight').value = state.okuriWeight;
+    document.getElementById('ctl-kuntenweight').value = state.kuntenWeight;
     document.getElementById('ctl-jukujikungap').value = state.jukujikunCharSpacing;
     syncAnnoSlidersFromOffsets();
   }
@@ -2908,6 +3022,7 @@
   bindSlider('ctl-annoscale', 'annoScalePercent');
   bindSlider('ctl-kanjiweight', 'kanjiWeight');
   bindSlider('ctl-okuriweight', 'okuriWeight');
+  bindSlider('ctl-kuntenweight', 'kuntenWeight');
   bindSlider('ctl-jukujikungap', 'jukujikunCharSpacing');
 
   // ---------- 注釈ごとの位置調整スライダー(px)を動的に生成する ----------
@@ -2919,7 +3034,6 @@
     { key: 'shimo',  label: '下記号' },
     { key: 'hFuri',  label: '左振り仮名' },
     { key: 'hOkuri', label: '左送り仮名' },
-    { key: 'kamiHyphenLeft', label: '左に寄せたハイフン' },
   ];
 
   function buildAnnoSliders(){
@@ -3688,7 +3802,7 @@
     annotations.forEach((a, idx) => {
       if(!isKanji(charAtIdx(text, idx))) return;
       const b = Object.assign({}, a, { kami: '', shimo: '' });
-      delete b.kamiLeft;
+      delete b.kamiLeft; delete b.kamiDx; delete b.kamiDy;
       next.set(keptBefore[idx], b);
     });
     annotations = next;
