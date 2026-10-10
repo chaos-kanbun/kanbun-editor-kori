@@ -224,6 +224,24 @@
   .file-dock.is-collapsed .file-dock-body{ display: none; }
   .file-dock.is-collapsed .file-dock-toggle svg{ transform: rotate(180deg); }
 
+  /* 元のファイルが見つからないときの確認(画面の真ん中に出す) */
+  .file-dialog-back{
+    position: fixed; inset: 0; z-index: 90;
+    background: rgba(0,0,0,.32);
+    display: flex; align-items: center; justify-content: center; padding: 16px;
+  }
+  .file-dialog{
+    width: min(440px, 100%); box-sizing: border-box;
+    background: var(--dads-canvas); color: var(--dads-ink);
+    border-radius: 12px; box-shadow: 0 16px 40px rgba(0,0,0,.28);
+    padding: 20px 22px; font-family: var(--dads-font); font-size: 14px; line-height: 1.8;
+  }
+  .file-dialog h2{ margin: 0 0 8px; font-size: 17px; color: var(--dads-ink-strong); }
+  .file-dialog p{ margin: 0 0 8px; }
+  .file-dialog-actions{ display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 14px; }
+  .file-dialog-actions .btn.primary{ background: var(--dads-primary); color: #fff; }
+  .file-dialog-actions .btn.primary:hover{ background: var(--dads-primary-hover); }
+
   /* 前回の控えを戻すかどうかの案内(右下のパネルの上に出す) */
   .restore-banner{
     background: var(--dads-canvas); color: var(--dads-ink);
@@ -2306,12 +2324,14 @@
     }, 'Ctrl+V');
 
     addMenuSep();
-    addMenuItem('選択した範囲の記号を上下記号にする', () => {
+    // 何も選んでいないときは文書全体が対象になるので、それが分かる名前にする
+    const noSelection = (s === e);
+    addMenuItem(noSelection ? 'すべての記号を上下記号にする' : '選択した範囲の記号を上下記号にする', () => {
       hiddenInput.focus();
       hiddenInput.setSelectionRange(s, e);
       convertSelectionToAnnotation();
     }, 'Ctrl+Shift+K');
-    addMenuItem('選択した範囲の上下記号を記号に戻す', () => {
+    addMenuItem(noSelection ? 'すべての文字の上下記号を記号に戻す' : '選択した範囲の上下記号を記号に戻す', () => {
       hiddenInput.focus();
       hiddenInput.setSelectionRange(s, e);
       releaseSelectionAnnotations();
@@ -2628,7 +2648,7 @@
     markDocSaved(a.download);
   }
 
-  async function writeToHandle(handle){
+  async function ensureWritePermission(handle){
     // 控えから戻したファイルなどは、書き込みの許可をもう一度もらう必要がある
     if(typeof handle.queryPermission === 'function'){
       const opts = { mode: 'readwrite' };
@@ -2636,6 +2656,21 @@
         throw new Error('書き込みが許可されませんでした');
       }
     }
+  }
+
+  // ブラウザが覚えているのは「ファイルのあった場所と名前」なので、ファイルの名前を変えたり、
+  // 別のフォルダへ動かしたりすると、ブラウザはそのファイルを追いかけられない。
+  // そのまま書き込むと、元の場所に元の名前で新しいファイルができてしまうため、書く前に、まだそこにあるかを確かめる
+  async function handleStillExists(handle){
+    try{ await handle.getFile(); return true; }
+    catch(err){
+      if(err && (err.name === 'NotFoundError' || err.name === 'NotReadableError')) return false;
+      throw err;
+    }
+  }
+
+  async function writeToHandle(handle){
+    await ensureWritePermission(handle);
     const writable = await handle.createWritable();
     await writable.write(documentJsonText());
     await writable.close();
@@ -2663,12 +2698,70 @@
     if(!CAN_PICK_FILES){ downloadDocument(); return; }
     if(!currentFileHandle){ await saveDocumentAs(); return; }
     try{
+      await ensureWritePermission(currentFileHandle);
+      if(!(await handleStillExists(currentFileHandle))){
+        await askWhereFileWent();
+        return;
+      }
       await writeToHandle(currentFileHandle);
     } catch(err){
       if(err && err.name === 'AbortError') return;
       // 書き込みを許可されなかった・ファイルが動かされたなど。名前を付けて保存に切り替える
       if(confirm('前のファイルに上書きできませんでした。別の名前で保存しますか。')) await saveDocumentAs();
     }
+  }
+
+  // 元のファイルが見つからないとき:動かした先のファイルを選び直すか、新しいファイルとして保存するかを選んでもらう
+  function askWhereFileWent(){
+    return new Promise((resolve) => {
+      const back = document.createElement('div');
+      back.className = 'file-dialog-back';
+      const dlg = document.createElement('div');
+      dlg.className = 'file-dialog';
+      dlg.setAttribute('role', 'dialog');
+      dlg.setAttribute('aria-modal', 'true');
+      dlg.setAttribute('aria-label', 'ファイルが見つかりません');
+      const h = document.createElement('h2');
+      h.textContent = 'ファイルが見つかりません';
+      const p1 = document.createElement('p');
+      p1.textContent = '「' + (currentFileName || 'このファイル') + '」が、開いたときの場所にありません。名前を変えたか、別のフォルダへ動かした可能性があります。ブラウザは、動かしたファイルを自動では追いかけられません。';
+      const p2 = document.createElement('p');
+      p2.textContent = '動かした先のファイルを選び直すと、そのファイルに上書き保存し、以後はそのファイルを使います。';
+      const actions = document.createElement('div');
+      actions.className = 'file-dialog-actions';
+      const mk = (label, cls) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn' + (cls ? ' ' + cls : ''); b.textContent = label; actions.appendChild(b); return b; };
+      const repick = mk('ファイルを選び直す', 'primary');
+      const asNew = mk('新しいファイルとして保存');
+      const cancel = mk('やめる');
+      dlg.appendChild(h); dlg.appendChild(p1); dlg.appendChild(p2); dlg.appendChild(actions);
+      back.appendChild(dlg);
+      document.body.appendChild(back);
+      const close = () => { back.remove(); document.removeEventListener('keydown', onKey, true); hiddenInput.focus(); resolve(); };
+      const onKey = (e) => { if(e.key === 'Escape'){ e.preventDefault(); e.stopPropagation(); close(); } };
+      document.addEventListener('keydown', onKey, true);
+      repick.focus();
+
+      repick.addEventListener('click', async () => {
+        back.remove(); document.removeEventListener('keydown', onKey, true);
+        try{
+          const [handle] = await window.showOpenFilePicker({ types: JSON_PICKER_TYPES, multiple: false });
+          await writeToHandle(handle);
+        } catch(err){
+          if(!(err && err.name === 'AbortError')){
+            alert('保存できませんでした。もう一度お試しください。\n(' + (err && err.message ? err.message : err) + ')');
+          }
+        }
+        hiddenInput.focus();
+        resolve();
+      });
+      asNew.addEventListener('click', async () => {
+        back.remove(); document.removeEventListener('keydown', onKey, true);
+        await saveDocumentAs();
+        hiddenInput.focus();
+        resolve();
+      });
+      cancel.addEventListener('click', close);
+    });
   }
 
   // 保存した文書の中身を、エディタに読み込む
