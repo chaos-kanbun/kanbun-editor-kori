@@ -449,33 +449,29 @@
     text-stroke: var(--kanji-stroke, 0.5px) currentColor;
   }
   .cell.cell-selected{ background: var(--dads-tint-blue-selected); }
-  /* 送り仮名の太さ(左の欄の「送り仮名の太さ」)。400より細い値は書体の細いウェイトを使い、太い値は縁取りで太くする */
-  .anno.anno-okuri{
-    font-weight: var(--okuri-font-weight, 400);
-    -webkit-text-stroke: var(--okuri-stroke, 0px) currentColor;
-    text-stroke: var(--okuri-stroke, 0px) currentColor;
-  }
-  /* 訓点の太さ(左の欄の「訓点の太さ」)。仕組みは送り仮名と同じ */
-  .anno.anno-kunten{
-    font-weight: var(--kunten-font-weight, 400);
-    -webkit-text-stroke: var(--kunten-stroke, 0px) currentColor;
-    text-stroke: var(--kunten-stroke, 0px) currentColor;
-  }
   .anno{
     position:absolute;
     writing-mode: vertical-rl;
     text-orientation: mixed;
     font-size: calc(1em * var(--anno-scale, 0.42));
-    font-weight: 400; /* 漢字の太さ(text-stroke)を継承しないよう、常に独立した通常の太さにする */
-    -webkit-text-stroke: 0 currentColor;
-    text-stroke: 0 currentColor;
+    /* 漢字の周りの字(振り仮名・送り仮名・訓点・上下記号・左振り仮名・左送り仮名・熟字訓)の太さ。
+       左の欄の「訓読の文字の太さ」で変わる。漢字の太さとは別にする */
+    font-weight: var(--anno-font-weight, 400);
+    -webkit-text-stroke: var(--anno-stroke, 0px) currentColor;
+    text-stroke: var(--anno-stroke, 0px) currentColor;
     line-height: 1;
     color: var(--ink);
     pointer-events:none;
     white-space:nowrap;
     text-align:center;
   }
-  .anno-normal-size{ font-size: 1em; }
+  .anno-normal-size{
+    font-size: 1em;
+    /* 上下記号は「訓読の文字の太さ」の対象にせず、書体のもとの太さのままにする */
+    font-weight: 400;
+    -webkit-text-stroke: 0 currentColor;
+    text-stroke: 0 currentColor;
+  }
 
   /* 上記号のハイフン:ページ番号と同じく、触れると押せることが分かるようにする */
   /* 上記号・下記号:触れると色が変わり、右上に × が出る(押すとその記号が消える) */
@@ -774,12 +770,8 @@
           <input type="number" id="ctl-annoscale" step="1" value="45" class="num-input">
         </div>
         <div class="control">
-          <div class="row"><label style="flex:1" for="ctl-okuriweight">送り仮名の太さ</label></div>
-          <input type="number" id="ctl-okuriweight" step="10" min="100" value="900" class="num-input">
-        </div>
-        <div class="control">
-          <div class="row"><label style="flex:1" for="ctl-kuntenweight">訓点の太さ</label></div>
-          <input type="number" id="ctl-kuntenweight" step="10" min="100" value="900" class="num-input">
+          <div class="row"><label style="flex:1" for="ctl-annoweight">訓読の文字の太さ</label></div>
+          <input type="number" id="ctl-annoweight" step="10" min="100" value="900" class="num-input">
         </div>
         <div class="control">
           <div class="row"><label style="flex:1" for="ctl-jukujikungap">熟字訓ルビの字間</label></div>
@@ -940,7 +932,7 @@
     'ァ','ィ','ゥ','ェ','ォ','ッ','ャ','ュ','ョ','ヮ'
   ]);
 
-  const state = { fontSize:19, lineSpacing:36, charSpacing:30, margin:75, annoScalePercent:45, kanjiWeight:650, okuriWeight:900, kuntenWeight:900, jukujikunCharSpacing:0, pageNumberFormat:'n-of-m' };
+  const state = { fontSize:19, lineSpacing:36, charSpacing:30, margin:75, annoScalePercent:45, kanjiWeight:650, annoWeight:900, jukujikunCharSpacing:0, pageNumberFormat:'n-of-m' };
   let cellW, cellH, rowsPerColumn, colsPerPage, contentWidth, contentHeight;
 
   // 漢字判定(漢文注釈の対象)
@@ -1460,15 +1452,12 @@
     root.style.setProperty('--margin', state.margin + 'px');
     root.style.setProperty('--anno-scale', state.annoScalePercent / 100);
     root.style.setProperty('--kanji-stroke', kanjiWeightToStroke(state.kanjiWeight) + 'px');
-    // 送り仮名の太さ:400 より細い値は書体の細いウェイト(游明朝 Light など。無ければ標準)を使い、
+    // 訓読の文字の太さ:400 より細い値は書体の細いウェイト(游明朝 Light など。無ければ標準)を使い、
     // 400 より太い値は、字の大きさに合わせた縁取りで少しずつ太くする
-    const setAnnoWeight = (name, w) => {
-      w = Number(w) || 400;
-      root.style.setProperty('--' + name + '-font-weight', String(Math.max(100, Math.min(400, Math.round(w / 100) * 100))));
-      root.style.setProperty('--' + name + '-stroke', (kanjiWeightToStroke(Math.max(400, w)) * state.annoScalePercent / 100).toFixed(3) + 'px');
-    };
-    setAnnoWeight('okuri', state.okuriWeight);
-    setAnnoWeight('kunten', state.kuntenWeight);
+    const aw = Number(state.annoWeight) || 400;
+    const awStroke = kanjiWeightToStroke(Math.max(400, aw));
+    root.style.setProperty('--anno-font-weight', String(Math.max(100, Math.min(400, Math.round(aw / 100) * 100))));
+    root.style.setProperty('--anno-stroke', (awStroke * state.annoScalePercent / 100).toFixed(3) + 'px');
     const kanjiSpace = state.fontSize + 12; // 漢字1字に確保する正方形スペース(注釈表示用)
     cellW = Math.max(state.fontSize + state.lineSpacing, kanjiSpace);   // 列の幅
     cellH = Math.max(state.fontSize + state.charSpacing, kanjiSpace);  // 1文字分の高さ
@@ -1835,7 +1824,7 @@
           const shimoSpan = addAnnoSpanXY(el, shimoCh, ANNO_OFFSETS.shimo.x, y, true);
           if(shimoSpan){
             if(isBangType){
-              shimoSpan.style.transform += ' scaleY(0.8)';
+              shimoSpan.style.transform += ' scaleY(0.88)';
             } else if(isSemicolon){
               shimoSpan.style.textOrientation = 'upright';
               shimoSpan.style.transform += ' rotate(90deg)';
@@ -1850,8 +1839,10 @@
           makeMarkInteractive(addAnnoSpanXY(el, anno.shimo[1], 0, 24, true), markIdx, 'shimo', 1); // 鉤括弧閉じ
         } else if(anno.shimo && anno.shimo.length === 2){
           // ！」 ？」 ：」 ；」 など:記号を少し上に寄せ、その下に閉じ括弧を続ける
-          makeMarkInteractive(addShimoMark(anno.shimo[0], SHIMO_PAIR_LIFT), markIdx, 'shimo', 0);
-          makeMarkInteractive(addAnnoSpanXY(el, anno.shimo[1], 0, 24 + SHIMO_PAIR_LIFT + SHIMO_PAIR_GAP, true), markIdx, 'shimo', 1);
+          // 感嘆符・疑問符と並ぶときは、感嘆符・疑問符を3px、閉じ括弧を5px、それぞれ下に置く
+          const bangFirst = '！？!?'.includes(anno.shimo[0]);
+          makeMarkInteractive(addShimoMark(anno.shimo[0], SHIMO_PAIR_LIFT + (bangFirst ? 3 : 0)), markIdx, 'shimo', 0);
+          makeMarkInteractive(addAnnoSpanXY(el, anno.shimo[1], 0, 24 + SHIMO_PAIR_LIFT + SHIMO_PAIR_GAP + (bangFirst ? 5 : 0), true), markIdx, 'shimo', 1);
         } else if(anno.shimo){
           makeMarkInteractive(addShimoMark(anno.shimo, 0), markIdx, 'shimo', null);
         }
@@ -2408,9 +2399,7 @@
     addMenuItem('切り取り', () => {
       hiddenInput.focus();
       hiddenInput.setSelectionRange(s, e);
-      pushUndo(true, 'main:cut');
-      try{ document.execCommand('cut'); } catch(err){ /* noop */ }
-      handleInput();
+      try{ document.execCommand('cut'); } catch(err){ /* noop */ } // 実際の処理は cut の受け取りで行う
     }, 'Ctrl+X');
     addMenuItem('ペースト', async () => {
       hiddenInput.focus();
@@ -2620,8 +2609,7 @@
         margin: state.margin,
         annoScalePercent: state.annoScalePercent,
         kanjiWeight: state.kanjiWeight,
-        okuriWeight: state.okuriWeight,
-        kuntenWeight: state.kuntenWeight,
+        annoWeight: state.annoWeight,
         jukujikunCharSpacing: state.jukujikunCharSpacing,
         pageNumberFormat: state.pageNumberFormat,
       },
@@ -2711,8 +2699,7 @@
         margin: state.margin,
         annoScalePercent: state.annoScalePercent,
         kanjiWeight: state.kanjiWeight,
-        okuriWeight: state.okuriWeight,
-        kuntenWeight: state.kuntenWeight,
+        annoWeight: state.annoWeight,
         jukujikunCharSpacing: state.jukujikunCharSpacing,
         pageNumberFormat: state.pageNumberFormat,
       },
@@ -2903,8 +2890,9 @@
       if(data.state){
         Object.assign(state, data.state);
         // 送り仮名・訓点の太さが無い、古い保存ファイルは初期値にする
-        if(data.state.okuriWeight == null) state.okuriWeight = 900;
-        if(data.state.kuntenWeight == null) state.kuntenWeight = 900;
+        // (以前の「送り仮名の太さ」があれば、それを訓読の文字の太さとして引き継ぐ)
+        if(data.state.annoWeight == null) state.annoWeight = (data.state.okuriWeight != null) ? data.state.okuriWeight : 900;
+        delete state.okuriWeight; delete state.kuntenWeight;
       }
       if(data.annoOffsets){
         Object.keys(ANNO_OFFSETS).forEach(key => {
@@ -3093,8 +3081,7 @@
     document.getElementById('ctl-margin').value = state.margin;
     document.getElementById('ctl-annoscale').value = state.annoScalePercent;
     document.getElementById('ctl-kanjiweight').value = state.kanjiWeight;
-    document.getElementById('ctl-okuriweight').value = state.okuriWeight;
-    document.getElementById('ctl-kuntenweight').value = state.kuntenWeight;
+    document.getElementById('ctl-annoweight').value = state.annoWeight;
     document.getElementById('ctl-jukujikungap').value = state.jukujikunCharSpacing;
     syncAnnoSlidersFromOffsets();
   }
@@ -3157,6 +3144,39 @@
     pushUndo(false, 'main:' + e.inputType);
   });
   hiddenInput.addEventListener('paste', () => { pushUndo(true, 'main:paste'); });
+
+  // コピー・切り取り:漢字に付いている上記号・下記号も、本文の記号として一緒に写す。
+  // 字ごとに「上記号 + 字 + 下記号」の順に並べるので、上の字の下記号が先、下の字の上記号が後になる
+  function textWithMarks(start, end){
+    const text = hiddenInput.value;
+    let out = '';
+    for(let i = start; i < end; ){
+      const ch = charAtIdx(text, i);
+      const a = annotations.get(i);
+      if(a && a.kami) out += a.kami;
+      out += ch;
+      if(a && a.shimo) out += a.shimo;
+      i += ch.length;
+    }
+    return out;
+  }
+  hiddenInput.addEventListener('copy', (e) => {
+    const s = hiddenInput.selectionStart, en = hiddenInput.selectionEnd;
+    if(en <= s || !e.clipboardData) return;
+    e.preventDefault();
+    e.clipboardData.setData('text/plain', textWithMarks(s, en));
+  });
+  hiddenInput.addEventListener('cut', (e) => {
+    const s = hiddenInput.selectionStart, en = hiddenInput.selectionEnd;
+    if(en <= s || !e.clipboardData) return;
+    e.preventDefault();
+    e.clipboardData.setData('text/plain', textWithMarks(s, en));
+    pushUndo(true, 'main:cut');
+    const v = hiddenInput.value;
+    hiddenInput.value = v.slice(0, s) + v.slice(en);
+    hiddenInput.setSelectionRange(s, s);
+    handleInput();
+  });
 
   // 入力・貼り付けで変わった範囲 [start, end)(新しい本文での位置)を求める
   function changedRange(oldText, newText){
@@ -3276,8 +3296,7 @@
   bindSlider('ctl-margin', 'margin');
   bindSlider('ctl-annoscale', 'annoScalePercent');
   bindSlider('ctl-kanjiweight', 'kanjiWeight');
-  bindSlider('ctl-okuriweight', 'okuriWeight');
-  bindSlider('ctl-kuntenweight', 'kuntenWeight');
+  bindSlider('ctl-annoweight', 'annoWeight');
   bindSlider('ctl-jukujikungap', 'jukujikunCharSpacing');
 
   // ---------- 注釈ごとの位置調整スライダー(px)を動的に生成する ----------
