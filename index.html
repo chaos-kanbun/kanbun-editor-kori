@@ -424,6 +424,10 @@
     pointer-events:none;
   }
 
+  /* 傍線・波線(字の左側) */
+  .side-line{ position: absolute; pointer-events: none; }
+  .side-line.straight{ width: 0; border-left: 1.2px solid var(--ink); }
+  .side-line.wavy{ background-repeat: repeat-y; background-position: 0 0; }
   .caret-bar{
     position: fixed;
     height: 2px;
@@ -972,6 +976,10 @@
 
   // 漢字の直前にある開き括弧を、自動的にその漢字の「上記号」へ振り替える
   const OPEN_BRACKETS = new Set(['「','『','(','（','[','［','{','｛','〈','《','〔','〖']);
+  // 入力した時点で自動で上下記号にするのは、漢文で使う記号だけ(半角ハイフンも含む)。
+  // 丸括弧・角括弧や半角の！？などは、右クリックの「…記号を上下記号にする」でだけ変える
+  const AUTO_SHIMO = new Set(['、','。','，','．','・','！','？','：','；','」','』']);
+  const AUTO_KAMI = new Set(['「','『']);
 
   // ひらがな→カタカナ変換(送り仮名・左送り仮名用)
   // 注釈の文字数を、拡張漢字の領域にある合略仮名(𬼀 など)も1字として数える
@@ -1069,6 +1077,7 @@
   // key: 本文中の文字インデックス(漢字の位置) → { furi, okuri, kunten, kami, shimo, hFuri, hOkuri }
   let annotations = new Map();
   let jukujikunSpans = []; // 熟字訓ルビ: { start, end, text } の配列(複数文字にまたがる振り仮名)
+  let lineSpans = [];      // 傍線・波線: { start, end, type: 'straight' | 'wavy' } の配列(字の左側に引く線)
 
   function getAnno(idx){
     if(!annotations.has(idx)){
@@ -1079,7 +1088,7 @@
 
   // 本文の編集で位置がずれても、注釈が対応する漢字に追従するようにする
   function remapAnnotationsOnEdit(oldText, newText){
-    if(oldText === newText || (annotations.size === 0 && jukujikunSpans.length === 0)) return;
+    if(oldText === newText || (annotations.size === 0 && jukujikunSpans.length === 0 && lineSpans.length === 0)) return;
     const maxPrefix = Math.min(oldText.length, newText.length);
     let prefix = 0;
     while(prefix < maxPrefix && oldText[prefix] === newText[prefix]) prefix++;
@@ -1102,6 +1111,13 @@
     });
     annotations = next;
 
+    // 傍線・波線:線の中で字を足せば線も伸び、消せば縮む。線のすぐ前・すぐ後ろに足した字には引かない
+    lineSpans = lineSpans.map(sp => ({
+      start: sp.start < oldMidStart ? sp.start : (sp.start >= oldMidEnd ? sp.start + delta : newMidStart),
+      end:   sp.end <= oldMidStart ? sp.end : (sp.end >= oldMidEnd ? sp.end + delta : newMidStart),
+      type: sp.type,
+    })).filter(sp => sp.end > sp.start);
+
     // 熟字訓ルビ:範囲内の文字が1つでも削除された場合は、ルビ全体を削除する。
     // 削除を伴わない編集(範囲の外側での挿入など)は、単純な位置ズレとして追従させる。
     jukujikunSpans = jukujikunSpans
@@ -1116,6 +1132,11 @@
 
   // 注釈のキー(文字インデックス)を一括でずらす(自動割り当て処理が本文を直接書き換える際に使用)
   function shiftAnnotationsFrom(fromIdx, delta){
+    lineSpans = lineSpans.map(sp => ({
+      start: sp.start >= fromIdx ? sp.start + delta : sp.start,
+      end:   sp.end   >= fromIdx ? sp.end   + delta : sp.end,
+      type: sp.type,
+    })).filter(sp => sp.end > sp.start);
     jukujikunSpans = jukujikunSpans.map(span => ({
       start: span.start >= fromIdx ? span.start + delta : span.start,
       end:   span.end   >= fromIdx ? span.end   + delta : span.end,
@@ -1138,7 +1159,7 @@
   // ・半角ハイフンは、上の字(直前の漢字)の下記号にする。上の字の下記号が埋まっていて使えないときだけ、
   //   これまでどおり下の字(直後の漢字)の上記号にする
   // track を渡すと、track.pos(カーソルの位置)を、消した字の分だけ前へずらす
-  function convertRangeToAnnotations(rangeStart, rangeEnd, track){
+  function convertRangeToAnnotations(rangeStart, rangeEnd, track, autoOnly){
     let text = hiddenInput.value;
     const removeAt = (i) => {
       text = text.slice(0, i) + text.slice(i + 1);
@@ -1167,7 +1188,7 @@
         }
 
         // 閉じ括弧・句読点 → 直前の漢字の下記号
-        if(PUNCT_TO_SHIMO.has(ch) && i > 0 && isKanji(charAtIdx(text, prevCharIdx(text, i)))){
+        if(PUNCT_TO_SHIMO.has(ch) && (!autoOnly || AUTO_SHIMO.has(ch)) && i > 0 && isKanji(charAtIdx(text, prevCharIdx(text, i)))){
           const kanjiIdx = prevCharIdx(text, i);
           const anno = getAnno(kanjiIdx);
           let newShimo = null;
@@ -1186,7 +1207,7 @@
         }
 
         // 開き括弧・半角ハイフン → 直後の漢字の上記号
-        if((OPEN_BRACKETS.has(ch) || ch === '-') && i + 1 < text.length && isKanji(charAtIdx(text, i + 1))){
+        if(((OPEN_BRACKETS.has(ch) && (!autoOnly || AUTO_KAMI.has(ch))) || ch === '-') && i + 1 < text.length && isKanji(charAtIdx(text, i + 1))){
           const kanjiOldIdx = i + 1;
           const existing = annotations.get(kanjiOldIdx);
           if(!existing || !existing.kami){
@@ -1621,9 +1642,10 @@
       const y = (e.clientY - rect.top) / zoom;
       const idx = pointToIndex(pageIdx, x, y);
       dragAnchor = idx;
-      hiddenInput.setSelectionRange(idx, idx);
       hiddenInput.focus();
-      updateCaretVisual();
+      // 上下記号と漢字の間を押したときは、その間にキャレットを置く
+      const slot = markSlotAtPoint(e.clientX, e.clientY);
+      setCaretState(slot || { pos: idx, mark: null });
     });
     pageEl.appendChild(contentEl);
 
@@ -1657,6 +1679,54 @@
     }
     parent.appendChild(span);
     return span;
+  }
+
+  // ---------- 傍線・波線 ----------
+  // 範囲 [start, end) に線を引く(type = 'straight' | 'wavy')。type が null なら、その範囲の線を消す。
+  // 重なっていた線は、その範囲の分だけ置きかわる
+  function setLines(start, end, type){
+    const per = new Map();
+    lineSpans.forEach(sp => { for(let i = sp.start; i < sp.end; i++) per.set(i, sp.type); });
+    for(let i = start; i < end; i++){ if(type) per.set(i, type); else per.delete(i); }
+    const idxs = [...per.keys()].sort((a, b) => a - b);
+    const out = [];
+    idxs.forEach(i => {
+      const t = per.get(i);
+      const last = out[out.length - 1];
+      if(last && last.end === i && last.type === t) last.end = i + 1;
+      else out.push({ start: i, end: i + 1, type: t });
+    });
+    lineSpans = out;
+  }
+  function lineTypeAt(idx){
+    const sp = lineSpans.find(sp => idx >= sp.start && idx < sp.end);
+    return sp ? sp : null;
+  }
+  // 1マス分の線を、字の左側に描く。範囲の初めの字は字の上端から、終わりの字は字の下端まで
+  const WAVE_SVG = "data:image/svg+xml;utf8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="6" height="8" viewBox="0 0 6 8"><path d="M3 0 Q5.6 2 3 4 Q0.4 6 3 8" fill="none" stroke="#2b2a28" stroke-width="1"/></svg>');
+  function addSideLine(el, idx, text){
+    const sp = lineTypeAt(idx);
+    if(!sp) return;
+    const scale = state.fontSize / ANNO_BASE_SIZE;
+    const glyphTop = (cellH - state.fontSize) / 2, glyphBottom = (cellH + state.fontSize) / 2;
+    const isFirst = idx === sp.start;
+    const isLast = nextCharIdx(text, idx) >= sp.end;
+    const top = isFirst ? glyphTop : 0;
+    const bottom = isLast ? glyphBottom : cellH;
+    const ln = document.createElement('div');
+    ln.className = 'side-line ' + sp.type;
+    const x = state.fontSize / 2 + 2 * scale; // 字の左端から少し離す
+    if(sp.type === 'wavy'){
+      ln.style.width = (6 * scale) + 'px';
+      ln.style.left = 'calc(50% - ' + (x + 3 * scale) + 'px)';
+      ln.style.backgroundImage = 'url("' + WAVE_SVG + '")';
+      ln.style.backgroundSize = (6 * scale) + 'px ' + (8 * scale) + 'px';
+    } else {
+      ln.style.left = 'calc(50% - ' + x + 'px)';
+    }
+    ln.style.top = top + 'px';
+    ln.style.height = Math.max(0, bottom - top) + 'px';
+    el.appendChild(ln);
   }
 
   // ---------- 上記号・下記号の削除(マウスを重ねると色が変わり、右上の × で消せる) ----------
@@ -1715,13 +1785,179 @@
     render();
   }
 
-  // 上記号・下記号の字を、触れると色が変わり、× を出せるようにする
+  // ---------- 上下記号と漢字の間のキャレット ----------
+  // 本文の中の位置(テキストの位置)だけでは、「上記号と漢字の間」「漢字と下記号の間」「2つの下記号の間」を
+  // 表せないので、そこにいるときは markCaret に覚えておく。
+  //   { idx: 漢字の位置, field: 'kami' }          … 上記号と漢字の間(テキスト上は漢字の前)
+  //   { idx: 漢字の位置, field: 'shimo', p: n }    … 下記号の n 字目の前(テキスト上は漢字の後ろ)
+  let markCaret = null;
+  function markCaretTextPos(mc){
+    return mc.field === 'kami' ? mc.idx : mc.idx + charAtIdx(hiddenInput.value, mc.idx).length;
+  }
+  function validMarkCaret(){
+    if(!markCaret) return null;
+    const a = annotations.get(markCaret.idx);
+    const ss = hiddenInput.selectionStart, se = hiddenInput.selectionEnd;
+    let ok = a && a[markCaret.field] && ss === se && se === markCaretTextPos(markCaret);
+    if(ok && markCaret.field === 'shimo') ok = markCaret.p >= 0 && markCaret.p < Array.from(a.shimo).length;
+    if(!ok) markCaret = null;
+    return markCaret;
+  }
+  function setCaretState(st){
+    markCaret = st.mark || null;
+    hiddenInput.setSelectionRange(st.pos, st.pos);
+    updateCaretVisual();
+  }
+  // 下へ(読む向きへ)1つ進む。上下記号のある字では、記号と字の間にも止まる
+  function caretForward(pos, mark){
+    const t = hiddenInput.value;
+    const afterK = (idx) => {
+      const ch = charAtIdx(t, idx), a = annotations.get(idx), end = idx + ch.length;
+      if(isKanji(ch) && a && a.shimo) return { pos: end, mark: { idx, field: 'shimo', p: 0 } };
+      return { pos: end, mark: null };
+    };
+    if(!mark){
+      if(pos >= t.length) return null;
+      const ch = charAtIdx(t, pos), a = annotations.get(pos);
+      if(isKanji(ch) && a && a.kami) return { pos, mark: { idx: pos, field: 'kami' } };
+      return afterK(pos);
+    }
+    if(mark.field === 'kami') return afterK(mark.idx);
+    const n = Array.from(annotations.get(mark.idx).shimo).length;
+    if(mark.p + 1 < n) return { pos, mark: { idx: mark.idx, field: 'shimo', p: mark.p + 1 } };
+    return { pos, mark: null };
+  }
+  // 上へ(読む向きと逆へ)1つ戻る
+  function caretBackward(pos, mark){
+    const t = hiddenInput.value;
+    const beforeK = (idx) => {
+      const a = annotations.get(idx);
+      if(isKanji(charAtIdx(t, idx)) && a && a.kami) return { pos: idx, mark: { idx, field: 'kami' } };
+      return { pos: idx, mark: null };
+    };
+    if(!mark){
+      if(pos <= 0) return null;
+      const pi = prevCharIdx(t, pos), a = annotations.get(pi);
+      if(isKanji(charAtIdx(t, pi)) && a && a.shimo) return { pos, mark: { idx: pi, field: 'shimo', p: Array.from(a.shimo).length - 1 } };
+      return beforeK(pi);
+    }
+    if(mark.field === 'kami') return { pos: mark.idx, mark: null };
+    if(mark.p > 0) return { pos, mark: { idx: mark.idx, field: 'shimo', p: mark.p - 1 } };
+    return beforeK(mark.idx);
+  }
+  // キャレットが上下記号と漢字の間にあるときの Backspace:キャレットのすぐ上のものを消す
+  function backspaceAtMark(mc){
+    const t = hiddenInput.value;
+    const a = annotations.get(mc.idx);
+    if(mc.field === 'kami'){
+      // 上記号と漢字の間 → 上記号を消す
+      pushUndo(true, 'main:deleteMark');
+      a.kami = ''; delete a.kamiDx; delete a.kamiDy; delete a.kamiLeft;
+      markCaret = null;
+      hiddenInput.setSelectionRange(mc.idx, mc.idx);
+      render();
+      return;
+    }
+    if(mc.p > 0){
+      // 2つの下記号の間 → 上の下記号を消す
+      pushUndo(true, 'main:deleteMark');
+      const chars = Array.from(a.shimo);
+      chars.splice(mc.p - 1, 1);
+      a.shimo = chars.join('');
+      if(a.shimo !== '-'){ delete a.shimoDx; delete a.shimoDy; }
+      markCaret = { idx: mc.idx, field: 'shimo', p: mc.p - 1 };
+      render();
+      return;
+    }
+    // 漢字と下記号の間 → 漢字を消す。付いていた記号は、前後の字に付け直せるように本文に戻す
+    pushUndo(true, 'main:deleteKanji');
+    const ch = charAtIdx(t, mc.idx);
+    const shimo = a.shimo || '', kami = a.kami || '';
+    annotations.delete(mc.idx);
+    hiddenInput.value = t.slice(0, mc.idx) + shimo + kami + t.slice(mc.idx + ch.length);
+    hiddenInput.setSelectionRange(mc.idx + shimo.length, mc.idx + shimo.length);
+    markCaret = null;
+    handleInput();
+  }
+  // マスの中のクリック位置が、上下記号と漢字の間なら、その位置を返す(そうでなければ null)
+  function markSlotAtPoint(clientX, clientY){
+    for(const c of allCellEls){
+      if(!c.el.classList.contains('is-kanji') || c.idx !== Number(c.el.getAttribute('data-idx'))) continue;
+      const r = c.el.getBoundingClientRect();
+      if(clientX < r.left || clientX > r.right || clientY < r.top - 4 || clientY > r.bottom + 4) continue;
+      const a = annotations.get(c.idx);
+      if(!a || (!a.kami && !a.shimo)) return null;
+      const g = markGeometry(c.el);
+      const fs = state.fontSize * zoom;
+      const end = c.idx + charAtIdx(hiddenInput.value, c.idx).length;
+      if(a.kami && g.kami !== null && clientY >= g.kami && clientY < g.glyphTop + fs * 0.2){
+        return { pos: c.idx, mark: { idx: c.idx, field: 'kami' } };
+      }
+      if(a.shimo && g.shimo.length){
+        if(clientY > g.glyphBottom - fs * 0.2 && clientY <= g.shimo[0]) return { pos: end, mark: { idx: c.idx, field: 'shimo', p: 0 } };
+        for(let p = 1; p < g.shimo.length; p++){
+          if(clientY > g.shimo[p - 1] && clientY <= g.shimo[p]) return { pos: end, mark: { idx: c.idx, field: 'shimo', p } };
+        }
+      }
+      return null;
+    }
+    return null;
+  }
+  // 漢字のマスの中の、字の上端・下端と、上下記号それぞれの中心(画面上の y)
+  function markGeometry(el){
+    const r = el.getBoundingClientRect();
+    const fs = state.fontSize * zoom;
+    const cy = r.top + r.height / 2;
+    const out = { rect: r, glyphTop: cy - fs / 2, glyphBottom: cy + fs / 2, kami: null, shimo: [] };
+    el.querySelectorAll('.mark-hit').forEach(sp => {
+      const b = sp.getBoundingClientRect();
+      const c = b.top + b.height / 2;
+      if(sp.dataset.markField === 'kami') out.kami = c;
+      else if(sp.dataset.markField === 'shimo') out.shimo[Number(sp.dataset.markPos || 0)] = c;
+    });
+    out.shimo = out.shimo.filter(v => typeof v === 'number');
+    return out;
+  }
+  // markCaret のときのキャレットの高さ(画面上の y)。記号と字の、ちょうど間
+  function markCaretY(mc){
+    const c = allCellEls.find(x => x.idx === mc.idx && x.el.classList.contains('is-kanji'));
+    if(!c) return null;
+    const g = markGeometry(c.el);
+    if(mc.field === 'kami') return { rect: g.rect, y: g.kami !== null ? (g.kami + g.glyphTop) / 2 : g.glyphTop - 2 };
+    const prevY = mc.p === 0 ? g.glyphBottom : g.shimo[mc.p - 1];
+    const nextY = g.shimo[mc.p];
+    if(typeof prevY !== 'number' || typeof nextY !== 'number') return { rect: g.rect, y: g.glyphBottom + 2 };
+    return { rect: g.rect, y: (prevY + nextY) / 2 };
+  }
+
+  // 上記号・下記号の字を、触れると色が変わり、× を出せるようにする。
+  // 字を押すと、押した所が字の上半分ならその記号の前、下半分なら後ろにキャレットを置く
   function makeMarkInteractive(span, idx, field, pos, title){
     if(!span) return span;
     span.classList.add('mark-hit');
+    span.dataset.markField = field;
+    span.dataset.markPos = (pos === null || pos === undefined) ? '0' : String(pos);
     span.title = title || '右上の × で、この記号を消せます';
     const target = { span, idx, field, pos };
-    span.addEventListener('mousedown', (e) => { e.stopPropagation(); e.preventDefault(); });
+    span.addEventListener('mousedown', (e) => {
+      e.stopPropagation(); e.preventDefault();
+      if(e.button !== 0 || span.classList.contains('hyphen-mark')) return;
+      const b = span.getBoundingClientRect();
+      const upper = e.clientY < b.top + b.height / 2;
+      const t = hiddenInput.value;
+      const end = idx + charAtIdx(t, idx).length;
+      const a = annotations.get(idx);
+      let st;
+      if(field === 'kami') st = upper ? { pos: idx, mark: null } : { pos: idx, mark: { idx, field: 'kami' } };
+      else {
+        const p = (pos === null || pos === undefined) ? 0 : pos;
+        const n = a && a.shimo ? Array.from(a.shimo).length : 0;
+        if(upper) st = { pos: end, mark: { idx, field: 'shimo', p } };
+        else st = (p + 1 < n) ? { pos: end, mark: { idx, field: 'shimo', p: p + 1 } } : { pos: end, mark: null };
+      }
+      hiddenInput.focus();
+      setCaretState(st);
+    });
     span.addEventListener('mouseenter', () => showMarkClose(target));
     span.addEventListener('mouseleave', scheduleHideMarkClose);
     return span;
@@ -1760,6 +1996,8 @@
       sub.textContent = text[idx];
       el.appendChild(sub);
     });
+
+    if(ch !== '\n') addSideLine(el, cell.mainIdx, text);
 
     if(isKanji(ch)){
       el.classList.add('is-kanji');
@@ -1980,6 +2218,23 @@
     const hasSelection = hiddenInput.selectionStart !== hiddenInput.selectionEnd;
     caretBar.style.display = hasSelection ? 'none' : '';
 
+    // 上下記号と漢字の間にキャレットがあるときは、その間に横線を出す
+    const mc = validMarkCaret();
+    if(mc && !hasSelection){
+      const m = markCaretY(mc);
+      if(m){
+        caretBar.style.left = m.rect.left + 'px';
+        caretBar.style.top = (m.y - 1) + 'px';
+        caretBar.style.width = m.rect.width + 'px';
+        caretBar.style.animation = 'none';
+        void caretBar.offsetWidth;
+        caretBar.style.animation = '';
+        hiddenInput.style.left = m.rect.left + 'px';
+        hiddenInput.style.top = (m.y - 1) + 'px';
+        return;
+      }
+    }
+
     const s = hiddenInput.selectionEnd; // 選択がある場合は「移動している側」の端に合わせる
     const pos = layout.posOf[s];
     if(!pos) return; // 不正な位置なら何もしない(先頭へジャンプさせない)
@@ -1990,7 +2245,28 @@
     const localRight = pos.col * cellW * zoom;
     const rect = refs.contentEl.getBoundingClientRect();
     const left = rect.right - localRight - cellW * zoom;
-    const top = rect.top + localTop;
+    let top = rect.top + localTop;
+    // 上の字の下記号より下、下の字の上記号より上に出す(記号がマスの境目をまたいでいても、記号の外側に見えるように)
+    if(!hasSelection){
+      const t = hiddenInput.value, fs = state.fontSize * zoom;
+      const cellElOf = (i) => { const c = allCellEls.find(x => x.idx === i && x.el.classList.contains('is-kanji')); return c ? c.el : null; };
+      let lo = null, hi = null;
+      if(s > 0){
+        const pi = prevCharIdx(t, s), pp = layout.posOf[pi], pa = annotations.get(pi);
+        if(pa && pa.shimo && pp && pp.page === pos.page && pp.col === pos.col){
+          const el = cellElOf(pi);
+          if(el){ const g = markGeometry(el); if(g.shimo.length) lo = g.shimo[g.shimo.length - 1] + fs * 0.28; }
+        }
+      }
+      const na = annotations.get(s);
+      if(na && na.kami && s < t.length){
+        const el = cellElOf(s);
+        if(el){ const g = markGeometry(el); if(g.kami !== null) hi = g.kami - fs * 0.28; }
+      }
+      if(lo !== null && hi !== null) top = lo <= hi ? Math.min(Math.max(top, lo), hi) : (lo + hi) / 2;
+      else if(lo !== null) top = Math.max(top, lo);
+      else if(hi !== null) top = Math.min(top, hi);
+    }
 
     caretBar.style.left = left + 'px';
     caretBar.style.top = top + 'px';
@@ -2447,6 +2723,28 @@
       }
     }
 
+    // 傍線・波線:選んだ字の左側に線を引く
+    if(selLen >= 1){
+      addMenuSep();
+      addMenuItem('傍線を引く', () => {
+        pushUndo(true, 'main:line');
+        setLines(s, e, 'straight');
+        render(); hiddenInput.focus();
+      });
+      addMenuItem('波線を引く', () => {
+        pushUndo(true, 'main:line');
+        setLines(s, e, 'wavy');
+        render(); hiddenInput.focus();
+      });
+      if(lineSpans.some(sp => sp.start < e && sp.end > s)){
+        addMenuItem('傍線・波線を消す', () => {
+          pushUndo(true, 'main:line');
+          setLines(s, e, null);
+          render(); hiddenInput.focus();
+        });
+      }
+    }
+
     if(selLen >= 2){
       addMenuSep();
       addMenuItem('熟字訓を入力', () => {
@@ -2599,6 +2897,7 @@
       text: hiddenInput.value,
       annotations: cloneAnnotations(annotations),
       jukujikunSpans: jukujikunSpans.map(sp => ({ start: sp.start, end: sp.end, text: sp.text })),
+      lineSpans: lineSpans.map(sp => ({ start: sp.start, end: sp.end, type: sp.type })),
       gaiji: [...gaiji.entries()],
       selStart: hiddenInput.selectionStart,
       selEnd: hiddenInput.selectionEnd,
@@ -2637,6 +2936,7 @@
     hiddenInput.value = snap.text;
     annotations = cloneAnnotations(snap.annotations);
     jukujikunSpans = (snap.jukujikunSpans || []).map(sp => ({ start: sp.start, end: sp.end, text: sp.text }));
+    lineSpans = (snap.lineSpans || []).map(sp => ({ start: sp.start, end: sp.end, type: sp.type }));
     gaiji = new Map(snap.gaiji || []);
     if(snap.settings) Object.assign(state, snap.settings);
     if(snap.annoOffsets){
@@ -2691,6 +2991,7 @@
       text: hiddenInput.value,
       annotations: [...annotations.entries()],
       jukujikunSpans: jukujikunSpans.map(sp => ({ start: sp.start, end: sp.end, text: sp.text })),
+      lineSpans: lineSpans.map(sp => ({ start: sp.start, end: sp.end, type: sp.type })),
       gaiji: [...gaiji.entries()],
       state: {
         fontSize: state.fontSize,
@@ -2885,6 +3186,9 @@
       hiddenInput.value = typeof data.text === 'string' ? data.text : '';
       annotations = new Map((data.annotations || []).map(([k, v]) => [Number(k), v]));
       jukujikunSpans = (data.jukujikunSpans || []).map(sp => ({ start: sp.start, end: sp.end, text: sp.text }));
+      lineSpans = (data.lineSpans || [])
+        .filter(sp => sp && Number.isInteger(sp.start) && Number.isInteger(sp.end) && sp.end > sp.start)
+        .map(sp => ({ start: sp.start, end: sp.end, type: sp.type === 'wavy' ? 'wavy' : 'straight' }));
       // 外字の字形は画像として表示するだけなので、SVG以外の中身は受け付けない
       gaiji = new Map((data.gaiji || []).filter(([k, v]) => typeof k === 'string' && v && typeof v.svg === 'string' && /^\s*<svg[\s>]/.test(v.svg)));
       if(data.state){
@@ -3197,7 +3501,7 @@
     const to = Math.min(text.length, end + 2);
     if(to <= from) return false;
     const track = { pos: hiddenInput.selectionEnd };
-    const n = convertRangeToAnnotations(from, to, track);
+    const n = convertRangeToAnnotations(from, to, track, true);
     if(n > 0){
       hiddenInput.setSelectionRange(track.pos, track.pos);
       return true;
@@ -3206,6 +3510,7 @@
   }
 
   function handleInput(){
+    markCaret = null;
     const newText = hiddenInput.value;
     if(newText !== prevText){
       const rg = changedRange(prevText, newText);
@@ -3236,6 +3541,18 @@
       return;
     }
 
+    // 上下記号と漢字の間にキャレットがあるとき
+    const mc = validMarkCaret();
+    if(mc && e.key === 'Backspace'){ e.preventDefault(); backspaceAtMark(mc); return; }
+    if(mc && !e.shiftKey && (e.key === 'ArrowDown' || e.key === 'ArrowUp')){
+      e.preventDefault();
+      shiftAnchor = null;
+      const st = e.key === 'ArrowDown' ? caretForward(s, mc) : caretBackward(s, mc);
+      if(st) setCaretState(st);
+      return;
+    }
+    if(mc && !['Shift','Control','Alt','Meta'].includes(e.key)){ markCaret = null; updateCaretVisual(); }
+
     if(e.key === 'Backspace' && s === eSel && s > 0){
       if(handleSpecialDelete(prevCharIdx(text, s))){ e.preventDefault(); return; }
     }
@@ -3261,6 +3578,12 @@
         }
       }
 
+      // 上下の移動(選択なし)では、上下記号と漢字の間にも止まる
+      if(!e.shiftKey && s === eSel && (e.key === 'ArrowDown' || e.key === 'ArrowUp')){
+        const st = e.key === 'ArrowDown' ? caretForward(s, null) : caretBackward(s, null);
+        if(st) setCaretState(st);
+        return;
+      }
       let target = null;
       if(e.key === 'ArrowDown'){ target = nextCharIdx(text, movingPos); }
       else if(e.key === 'ArrowUp'){ target = prevCharIdx(text, movingPos); }
@@ -3444,6 +3767,7 @@
     hiddenInput.value = '';
     annotations = new Map();
     jukujikunSpans = [];
+    lineSpans = [];
     gaiji = new Map();
     prevText = '';
     render();
@@ -4083,6 +4407,9 @@
     annotations = next;
     jukujikunSpans = jukujikunSpans
       .map(sp => ({ start: keptBefore[sp.start], end: keptBefore[sp.end], text: sp.text }))
+      .filter(sp => sp.end > sp.start);
+    lineSpans = lineSpans
+      .map(sp => ({ start: keptBefore[sp.start], end: keptBefore[sp.end], type: sp.type }))
       .filter(sp => sp.end > sp.start);
     const caret = keptBefore[Math.min(hiddenInput.selectionEnd, text.length)];
     hiddenInput.value = out;
