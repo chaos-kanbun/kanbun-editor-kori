@@ -643,6 +643,17 @@
   }
   .ids-key:hover{ background: var(--dads-tint-blue); border-color: var(--dads-primary); }
   .ids-key.is-variant{ border-style: dashed; }
+  /* 部首と、その変わった形のまとまり */
+  .ids-rad-group{
+    display: inline-flex; align-items: center; gap: 2px;
+    padding: 2px 3px 2px 2px; border-radius: 9px;
+    background: var(--dads-surface); border: 1px solid var(--dads-surface-alt);
+  }
+  .ids-key.ids-form-key{
+    min-width: 26px; height: 28px; padding: 0 3px; font-size: 15px;
+    color: var(--dads-muted); border-style: dashed; background: var(--dads-canvas);
+  }
+  .ids-key.ids-form-key:hover{ color: var(--dads-primary); }
   .ids-tabs{ flex: none; display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid var(--dads-hairline); }
   .ids-tab{
     padding: 5px 8px; border: none; border-bottom: 3px solid transparent;
@@ -1839,9 +1850,9 @@
           makeMarkInteractive(addAnnoSpanXY(el, anno.shimo[1], 0, 24, true), markIdx, 'shimo', 1); // 鉤括弧閉じ
         } else if(anno.shimo && anno.shimo.length === 2){
           // ！」 ？」 ：」 ；」 など:記号を少し上に寄せ、その下に閉じ括弧を続ける
-          // 感嘆符・疑問符と並ぶときは、感嘆符・疑問符を3px、閉じ括弧を5px、それぞれ下に置く
+          // 感嘆符・疑問符と並ぶときは、感嘆符・疑問符を2px、閉じ括弧を5px、それぞれ下に置く
           const bangFirst = '！？!?'.includes(anno.shimo[0]);
-          makeMarkInteractive(addShimoMark(anno.shimo[0], SHIMO_PAIR_LIFT + (bangFirst ? 3 : 0)), markIdx, 'shimo', 0);
+          makeMarkInteractive(addShimoMark(anno.shimo[0], SHIMO_PAIR_LIFT + (bangFirst ? 2 : 0)), markIdx, 'shimo', 0);
           makeMarkInteractive(addAnnoSpanXY(el, anno.shimo[1], 0, 24 + SHIMO_PAIR_LIFT + SHIMO_PAIR_GAP + (bangFirst ? 5 : 0), true), markIdx, 'shimo', 1);
         } else if(anno.shimo){
           makeMarkInteractive(addShimoMark(anno.shimo, 0), markIdx, 'shimo', null);
@@ -3499,6 +3510,10 @@
     const src = (typeof window !== 'undefined' && window.IDSRadicals) || (typeof self !== 'undefined' && self.IDSRadicals);
     return src && src.RADICALS ? src.RADICALS : [];
   }
+  function getRadicalForms(){
+    const src = (typeof window !== 'undefined' && window.IDSRadicals) || (typeof self !== 'undefined' && self.IDSRadicals);
+    return (src && src.RADICAL_FORMS) || {};
+  }
 
   function applyIdsBox(){
     const vw = window.innerWidth, vh = window.innerHeight;
@@ -3645,16 +3660,26 @@
       idsPalette.appendChild(p);
       return;
     }
+    const forms = getRadicalForms();
     [['部首', g.kangxi, ''], ['部首の変形', g.variants, 'is-variant'], ['部品', g.parts, '']].forEach(([label, chars, cls]) => {
       const list = Array.from(chars || '');
       if(!list.length) return;
       const lab = document.createElement('div');
       lab.className = 'ids-group-label';
-      lab.textContent = label;
+      lab.textContent = label === '部首' ? '部首(右の小さな字は、その部首が字の中で変わった形。どれを押しても同じ部首として探せます)' : label;
       idsPalette.appendChild(lab);
       const keys = document.createElement('div');
       keys.className = 'ids-keys';
-      list.forEach(ch => keys.appendChild(makeIdsKey(ch, cls)));
+      list.forEach(ch => {
+        const fs = label === '部首' ? Array.from(forms[ch] || '') : [];
+        if(!fs.length){ keys.appendChild(makeIdsKey(ch, cls)); return; }
+        // 部首と、その変わった形をひとまとまりにして並べる(例:羊|𦍌 ⺶ ⺷)
+        const grp = document.createElement('span');
+        grp.className = 'ids-rad-group';
+        grp.appendChild(makeIdsKey(ch, cls));
+        fs.forEach(f => grp.appendChild(makeIdsKey(f, 'ids-form-key', '「' + ch + '」が字の中で変わった形(U+' + f.codePointAt(0).toString(16).toUpperCase() + ')')));
+        keys.appendChild(grp);
+      });
       idsPalette.appendChild(keys);
     });
   }
