@@ -478,11 +478,19 @@
   .anno-normal-size{ font-size: 1em; }
 
   /* 上記号のハイフン:ページ番号と同じく、触れると押せることが分かるようにする */
-  .anno.hyphen-mark{
-    pointer-events: auto; cursor: pointer;
-    padding: 2px 5px; border-radius: 3px;
+  /* 上記号・下記号:触れると色が変わり、右上に × が出る(押すとその記号が消える) */
+  .anno.mark-hit{ pointer-events: auto; cursor: default; padding: 1px 3px; border-radius: 3px; z-index: 5; } /* 隣のマスより上に出して、触れるようにする */
+  .anno.mark-hit:hover, .anno.mark-hit.is-hot{ background: rgba(0,23,193,.10); color: var(--dads-primary); }
+  .anno.hyphen-mark{ cursor: pointer; padding: 2px 5px; }
+  .mark-close{
+    position: fixed; z-index: 66;
+    width: 18px; height: 18px; padding: 0; border: none; border-radius: 50%;
+    background: var(--dads-primary); color: #fff; cursor: pointer;
+    font: 700 12px/18px var(--dads-font); text-align: center;
+    box-shadow: 0 1px 4px rgba(0,0,0,.25);
   }
-  .anno.hyphen-mark:hover{ background: rgba(0,23,193,.10); color: var(--dads-primary); }
+  .mark-close:hover{ background: #c4001a; }
+  .mark-close[hidden]{ display: none; }
   .hyphen-panel{ padding: 8px 10px; }
   .hyphen-panel-title{ font-size: 12px; font-weight: 700; color: var(--dads-ink); margin: 0 0 4px; }
   .hyphen-row .anno-label{ width: 24px; min-width: 24px; }
@@ -673,7 +681,7 @@
     @page{ size: 297mm 210mm; margin: 0; }
     body{ background:#fff !important; }
     .toolbar, .sidebar, .caret-bar, .hidden-input,
-    .anno-panel, .kunten-picker, .context-menu, .ids-window, .composer-window, .help-window, .site-footer, .file-gutter{ display:none !important; }
+    .anno-panel, .kunten-picker, .context-menu, .ids-window, .composer-window, .help-window, .site-footer, .file-gutter, .mark-close{ display:none !important; }
     html, body{ height:auto !important; overflow:visible !important; display:block !important; }
     .app-body, .main-col, .workspace-area{ display:block !important; }
     .workspace-scroll{ overflow:visible !important; }
@@ -1135,8 +1143,15 @@
   // (自動では行わず、必ずこの関数がボタン等から呼ばれたときだけ処理する)
   // 範囲 [rangeStart, rangeEnd) の中にある、対象になり得る記号(鉤括弧・句読点・半角ハイフン)を
   // すべて処理して、隣の漢字の上記号/下記号にする。戻り値は変換できた個数。
-  function convertRangeToAnnotations(rangeStart, rangeEnd){
+  // ・半角ハイフンは、上の字(直前の漢字)の下記号にする。上の字の下記号が埋まっていて使えないときだけ、
+  //   これまでどおり下の字(直後の漢字)の上記号にする
+  // track を渡すと、track.pos(カーソルの位置)を、消した字の分だけ前へずらす
+  function convertRangeToAnnotations(rangeStart, rangeEnd, track){
     let text = hiddenInput.value;
+    const removeAt = (i) => {
+      text = text.slice(0, i) + text.slice(i + 1);
+      if(track && i < track.pos) track.pos--;
+    };
     let end = Math.min(rangeEnd, text.length);
     let converted = 0;
     let changed = true;
@@ -1146,6 +1161,18 @@
       guard++;
       for(let i = rangeStart; i < Math.min(end, text.length); i++){
         const ch = text[i];
+
+        // 半角ハイフン → 上の字(直前の漢字)の下記号
+        if(ch === '-' && i > 0 && isKanji(charAtIdx(text, prevCharIdx(text, i)))){
+          const anno = getAnno(prevCharIdx(text, i));
+          if(!anno.shimo){
+            anno.shimo = '-';
+            shiftAnnotationsFrom(i + 1, -1);
+            removeAt(i);
+            end--; converted++; changed = true; i--;
+            continue;
+          }
+        }
 
         // 閉じ括弧・句読点 → 直前の漢字の下記号
         if(PUNCT_TO_SHIMO.has(ch) && i > 0 && isKanji(charAtIdx(text, prevCharIdx(text, i)))){
@@ -1157,7 +1184,7 @@
           if(newShimo !== null){
             anno.shimo = newShimo;
             shiftAnnotationsFrom(i + 1, -1);
-            text = text.slice(0, i) + text.slice(i + 1);
+            removeAt(i);
             end--;
             converted++;
             changed = true;
@@ -1174,7 +1201,7 @@
             shiftAnnotationsFrom(kanjiOldIdx, -1);
             const anno = getAnno(i);
             anno.kami = ch;
-            text = text.slice(0, i) + text.slice(i + 1);
+            removeAt(i);
             end--;
             converted++;
             changed = true;
@@ -1231,6 +1258,7 @@
       if(anno.shimo){
         const released_shimo = anno.shimo;
         anno.shimo = '';
+        delete anno.shimoDx; delete anno.shimoDy;
         shiftAnnotationsFrom(i + kanjiLen, released_shimo.length);
         text = text.slice(0, i + kanjiLen) + released_shimo + text.slice(i + kanjiLen);
         released += released_shimo.length;
@@ -1642,6 +1670,74 @@
     return span;
   }
 
+  // ---------- 上記号・下記号の削除(マウスを重ねると色が変わり、右上の × で消せる) ----------
+  const markCloseBtn = document.createElement('button');
+  markCloseBtn.type = 'button';
+  markCloseBtn.className = 'mark-close';
+  markCloseBtn.textContent = '×';
+  markCloseBtn.title = 'この記号を消す';
+  markCloseBtn.setAttribute('aria-label', 'この記号を消す');
+  markCloseBtn.hidden = true;
+  document.body.appendChild(markCloseBtn);
+  let markCloseTarget = null;   // { span, idx, field, pos }
+  let markCloseHideTimer = null;
+  function hideMarkClose(){
+    clearTimeout(markCloseHideTimer);
+    markCloseBtn.hidden = true;
+    if(markCloseTarget && markCloseTarget.span) markCloseTarget.span.classList.remove('is-hot');
+    markCloseTarget = null;
+  }
+  function scheduleHideMarkClose(){
+    clearTimeout(markCloseHideTimer);
+    markCloseHideTimer = setTimeout(hideMarkClose, 220);
+  }
+  function showMarkClose(target){
+    clearTimeout(markCloseHideTimer);
+    if(markCloseTarget && markCloseTarget.span !== target.span) markCloseTarget.span.classList.remove('is-hot');
+    markCloseTarget = target;
+    target.span.classList.add('is-hot');
+    const r = target.span.getBoundingClientRect();
+    markCloseBtn.hidden = false;
+    markCloseBtn.style.left = Math.round(r.right - 5) + 'px';
+    markCloseBtn.style.top = Math.round(r.top - 11) + 'px';
+  }
+  markCloseBtn.addEventListener('mouseenter', () => { clearTimeout(markCloseHideTimer); });
+  markCloseBtn.addEventListener('mouseleave', scheduleHideMarkClose);
+  markCloseBtn.addEventListener('mousedown', (e) => { e.stopPropagation(); e.preventDefault(); });
+  markCloseBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const t = markCloseTarget;
+    hideMarkClose();
+    if(t) deleteMark(t.idx, t.field, t.pos);
+    hiddenInput.focus();
+  });
+  window.addEventListener('scroll', hideMarkClose, true);
+
+  // 漢字 idx の上記号・下記号(field)を消す。pos があれば、2字の下記号(。」など)のうちその1字だけを消す
+  function deleteMark(idx, field, pos){
+    const a = annotations.get(idx);
+    if(!a || !a[field]) return;
+    pushUndo(true, 'main:deleteMark');
+    const chars = Array.from(a[field]);
+    if(pos === null || pos === undefined || chars.length <= 1) a[field] = '';
+    else { chars.splice(pos, 1); a[field] = chars.join(''); }
+    if(a[field] !== '-'){ delete a[field + 'Dx']; delete a[field + 'Dy']; if(field === 'kami') delete a.kamiLeft; }
+    if(annoPanelEl && annoPanelEl.classList.contains('hyphen-panel')) closeAnnotationPanel();
+    render();
+  }
+
+  // 上記号・下記号の字を、触れると色が変わり、× を出せるようにする
+  function makeMarkInteractive(span, idx, field, pos, title){
+    if(!span) return span;
+    span.classList.add('mark-hit');
+    span.title = title || '右上の × で、この記号を消せます';
+    const target = { span, idx, field, pos };
+    span.addEventListener('mousedown', (e) => { e.stopPropagation(); e.preventDefault(); });
+    span.addEventListener('mouseenter', () => showMarkClose(target));
+    span.addEventListener('mouseleave', scheduleHideMarkClose);
+    return span;
+  }
+
   // 送り仮名(左送り仮名・熟字訓の後の送り仮名を含む)の字に印を付け、送り仮名の太さを当てる
   function markOkuri(span){ if(span) span.classList.add('anno-okuri'); return span; }
 
@@ -1703,24 +1799,27 @@
         }
 
         // 上記号が半角ハイフンの場合は、一つ前の文字と当該文字のちょうど中間に表示し、縦を1.75倍にする
-        // ハイフンごとに、押して出るパネルで位置をずらせる(kamiDx・kamiDy、文字の大きさ20pxのときのpx)
-        if(anno.kami === '-'){
+        const markIdx = cell.mainIdx;
+        // ハイフンは、字と字のちょうど間に、縦に伸ばして置く。where は 'kami'(この字の上)か 'shimo'(この字の下)。
+        // 押すとパネルが出て、そのハイフンだけ位置をずらせる(…Dx・…Dy、文字の大きさ20pxのときのpx)
+        const addHyphenMark = (where) => {
           const scale = state.fontSize / ANNO_BASE_SIZE;
-          const hd = hyphenOffsetOf(anno);
-          const kamiSpan = addAnnoSpanXY(el, anno.kami, 1 + hd.dx, -(cellH / 2) / scale + hd.dy, true);
-          if(kamiSpan){
-            kamiSpan.classList.add('hyphen-mark');
-            kamiSpan.title = '押すと、このハイフンの位置を変えられます';
-            const hIdx = cell.mainIdx;
-            kamiSpan.addEventListener('mousedown', (e) => { e.stopPropagation(); e.preventDefault(); });
-            kamiSpan.addEventListener('click', (e) => {
-              e.stopPropagation(); // 押した直後にパネルが閉じないように
-              openHyphenPanel(hIdx, kamiSpan.getBoundingClientRect());
-            });
-          }
-          if(kamiSpan) kamiSpan.style.transform += ' scaleY(1.75)';
+          const hd = hyphenOffsetOf(anno, where);
+          const half = (cellH / 2) / scale;
+          const sp = addAnnoSpanXY(el, '-', 1 + hd.dx, (where === 'kami' ? -half : half) + hd.dy, true);
+          if(!sp) return;
+          sp.style.transform += ' scaleY(1.75)';
+          sp.classList.add('hyphen-mark');
+          makeMarkInteractive(sp, markIdx, where, null, '押すと、このハイフンの位置を変えられます');
+          sp.addEventListener('click', (e) => {
+            e.stopPropagation(); // 押した直後にパネルが閉じないように
+            openHyphenPanel(markIdx, sp.getBoundingClientRect(), where);
+          });
+        };
+        if(anno.kami === '-'){
+          addHyphenMark('kami'); // 以前の文書で、下の字の上記号になっているハイフン
         } else if(anno.kami){
-          addAnnoSpanXY(el, anno.kami, ANNO_OFFSETS.kami.x, ANNO_OFFSETS.kami.y + kamiExtra, true);
+          makeMarkInteractive(addAnnoSpanXY(el, anno.kami, ANNO_OFFSETS.kami.x, ANNO_OFFSETS.kami.y + kamiExtra, true), markIdx, 'kami', null);
         }
         // 下記号:句点+鉤括弧閉じの組み合わせのときは、それぞれ個別の位置に表示する
         // また特定の記号は見た目を個別に調整する(！？は縦半分・8px上)
@@ -1744,15 +1843,17 @@
           }
           return shimoSpan;
         };
-        if(anno.shimo && anno.shimo.length === 2 && (anno.shimo[0] === '。' || anno.shimo[0] === '、' || anno.shimo[0] === '，' || anno.shimo[0] === '．')){
-          addAnnoSpanXY(el, anno.shimo[0], 0, 22, true); // 句読点
-          addAnnoSpanXY(el, anno.shimo[1], 0, 24, true); // 鉤括弧閉じ
+        if(anno.shimo === '-'){
+          addHyphenMark('shimo'); // ハイフンは、上の字の下記号として持つ
+        } else if(anno.shimo && anno.shimo.length === 2 && (anno.shimo[0] === '。' || anno.shimo[0] === '、' || anno.shimo[0] === '，' || anno.shimo[0] === '．')){
+          makeMarkInteractive(addAnnoSpanXY(el, anno.shimo[0], 0, 22, true), markIdx, 'shimo', 0); // 句読点
+          makeMarkInteractive(addAnnoSpanXY(el, anno.shimo[1], 0, 24, true), markIdx, 'shimo', 1); // 鉤括弧閉じ
         } else if(anno.shimo && anno.shimo.length === 2){
           // ！」 ？」 ：」 ；」 など:記号を少し上に寄せ、その下に閉じ括弧を続ける
-          addShimoMark(anno.shimo[0], SHIMO_PAIR_LIFT);
-          addAnnoSpanXY(el, anno.shimo[1], 0, 24 + SHIMO_PAIR_LIFT + SHIMO_PAIR_GAP, true);
+          makeMarkInteractive(addShimoMark(anno.shimo[0], SHIMO_PAIR_LIFT), markIdx, 'shimo', 0);
+          makeMarkInteractive(addAnnoSpanXY(el, anno.shimo[1], 0, 24 + SHIMO_PAIR_LIFT + SHIMO_PAIR_GAP, true), markIdx, 'shimo', 1);
         } else if(anno.shimo){
-          addShimoMark(anno.shimo, 0);
+          makeMarkInteractive(addShimoMark(anno.shimo, 0), markIdx, 'shimo', null);
         }
         // 左振り仮名・左送り仮名:右側(振り仮名・送り仮名)と同じ仕組みで、左送り仮名を左振り仮名の下に続ける
         if(anno.hFuri && anno.hOkuri){
@@ -1834,6 +1935,7 @@
   }
 
   function render(){
+    hideMarkClose(); // 記号の字は作り直すので、× も一度隠す
     const text = hiddenInput.value;
     layout = computeLayout(text);
 
@@ -1930,13 +2032,16 @@
   // ---------- ハイフンの位置のパネル ----------
   // 上記号のハイフンを押すと出る。押したハイフン1つだけを、横・縦にずらせる
   const HYPHEN_LEFT_DX = -8; // 「左に寄せる」で寄せる量(文字の大きさ20pxのときのpx)
-  function hyphenOffsetOf(anno){
+  // field は、ハイフンを持っている欄('shimo' = 上の字の下記号。以前の文書では 'kami' のこともある)
+  function hyphenOffsetOf(anno, field){
+    field = field || 'shimo';
     // 以前の「左に寄せる」(kamiLeft)で保存したものは、左に寄せた位置として扱う
-    const dx = (typeof anno.kamiDx === 'number') ? anno.kamiDx : (anno.kamiLeft ? HYPHEN_LEFT_DX : 0);
-    const dy = (typeof anno.kamiDy === 'number') ? anno.kamiDy : 0;
+    const dx = (typeof anno[field + 'Dx'] === 'number') ? anno[field + 'Dx'] : (field === 'kami' && anno.kamiLeft ? HYPHEN_LEFT_DX : 0);
+    const dy = (typeof anno[field + 'Dy'] === 'number') ? anno[field + 'Dy'] : 0;
     return { dx, dy };
   }
-  function openHyphenPanel(idx, rect){
+  function openHyphenPanel(idx, rect, field){
+    field = field || 'shimo';
     closeAnnotationPanel();
     hideContextMenu();
     const panel = document.createElement('div');
@@ -1953,10 +2058,10 @@
     const current = () => annotations.get(idx);
     const apply = (dx, dy, boundary) => {
       const a = current();
-      if(!a || a.kami !== '-') return;
+      if(!a || a[field] !== '-') return;
       pushUndo(!!boundary, 'hyphen:' + idx);
-      a.kamiDx = dx; a.kamiDy = dy;
-      delete a.kamiLeft;
+      a[field + 'Dx'] = dx; a[field + 'Dy'] = dy;
+      if(field === 'kami') delete a.kamiLeft;
       inputs.dx.value = dx; inputs.dy.value = dy;
       render();
     };
@@ -1977,7 +2082,7 @@
       const unit = document.createElement('span');
       unit.className = 'hyphen-unit'; unit.textContent = 'px';
       const step = (d) => {
-        const o = hyphenOffsetOf(current());
+        const o = hyphenOffsetOf(current(), field);
         if(key === 'dx') apply(o.dx + d, o.dy, true); else apply(o.dx, o.dy + d, true);
       };
       minus.addEventListener('click', (e) => { e.stopPropagation(); step(-1); });
@@ -1985,7 +2090,7 @@
       input.addEventListener('input', () => {
         const n = Number(input.value);
         if(input.value === '' || Number.isNaN(n)) return;
-        const o = hyphenOffsetOf(current());
+        const o = hyphenOffsetOf(current(), field);
         if(key === 'dx') apply(n, o.dy, false); else apply(o.dx, n, false);
       });
       inputs[key] = input;
@@ -1994,7 +2099,7 @@
     };
     makeRow('dx', '横', '←', '→');
     makeRow('dy', '縦', '↑', '↓');
-    const o0 = hyphenOffsetOf(current());
+    const o0 = hyphenOffsetOf(current(), field);
     inputs.dx.value = o0.dx; inputs.dy.value = o0.dy;
 
     const btnRow = document.createElement('div');
@@ -2764,6 +2869,25 @@
     });
   }
 
+  // 以前の文書で「下の字の上記号」になっているハイフンを、「上の字の下記号」に移す(移せるときだけ)
+  function migrateHyphens(){
+    const text = hiddenInput.value;
+    [...annotations.keys()].sort((x, y) => x - y).forEach(idx => {
+      const a = annotations.get(idx);
+      if(!a || a.kami !== '-' || idx === 0) return;
+      const pIdx = prevCharIdx(text, idx);
+      if(!isKanji(charAtIdx(text, pIdx))) return;
+      const pa = getAnno(pIdx);
+      if(pa.shimo) return;
+      const o = hyphenOffsetOf(a, 'kami');
+      pa.shimo = '-';
+      if(o.dx) pa.shimoDx = o.dx;
+      if(o.dy) pa.shimoDy = o.dy;
+      a.kami = '';
+      delete a.kamiLeft; delete a.kamiDx; delete a.kamiDy;
+    });
+  }
+
   // 保存した文書の中身を、エディタに読み込む
   function loadDocumentText(jsonText, fileName, handle){
     let data;
@@ -2791,6 +2915,7 @@
         });
       }
       prevText = hiddenInput.value;
+      migrateHyphens();
       recomputeGeometry();
       syncSlidersFromState();
       render();
@@ -3012,11 +3137,19 @@
   // ---------- イベント ----------
   let prevText = hiddenInput.value;
 
+  let compositionStartPos = 0;
   hiddenInput.addEventListener('compositionstart', () => {
     composing = true;
+    compositionStartPos = hiddenInput.selectionStart;
     pushUndo(true, 'main:composition');
   });
-  hiddenInput.addEventListener('compositionend', () => { composing = false; });
+  hiddenInput.addEventListener('compositionend', () => {
+    composing = false;
+    // 日本語入力で確定した文字も、すぐに上記号・下記号にする
+    const newText = hiddenInput.value;
+    if(newText !== prevText){ remapAnnotationsOnEdit(prevText, newText); prevText = newText; }
+    if(autoConvertAround(Math.min(compositionStartPos, hiddenInput.selectionStart), hiddenInput.selectionEnd)) render();
+  });
 
   hiddenInput.addEventListener('beforeinput', (e) => {
     if(composing) return;
@@ -3025,11 +3158,40 @@
   });
   hiddenInput.addEventListener('paste', () => { pushUndo(true, 'main:paste'); });
 
+  // 入力・貼り付けで変わった範囲 [start, end)(新しい本文での位置)を求める
+  function changedRange(oldText, newText){
+    const maxPrefix = Math.min(oldText.length, newText.length);
+    let prefix = 0;
+    while(prefix < maxPrefix && oldText[prefix] === newText[prefix]) prefix++;
+    let suffix = 0;
+    const maxSuffix = maxPrefix - prefix;
+    while(suffix < maxSuffix && oldText[oldText.length-1-suffix] === newText[newText.length-1-suffix]) suffix++;
+    return { start: prefix, end: newText.length - suffix };
+  }
+
+  // 句読点・鉤括弧・ハイフン・感嘆符・疑問符などを、入力した時点ですぐに隣の漢字の上記号・下記号にする。
+  // 変わった所とその前後だけを見るので、「記号に戻す」で戻した、離れた所の記号は勝手に戻らない
+  function autoConvertAround(start, end){
+    const text = hiddenInput.value;
+    const from = Math.max(0, start - 2);
+    const to = Math.min(text.length, end + 2);
+    if(to <= from) return false;
+    const track = { pos: hiddenInput.selectionEnd };
+    const n = convertRangeToAnnotations(from, to, track);
+    if(n > 0){
+      hiddenInput.setSelectionRange(track.pos, track.pos);
+      return true;
+    }
+    return false;
+  }
+
   function handleInput(){
     const newText = hiddenInput.value;
     if(newText !== prevText){
+      const rg = changedRange(prevText, newText);
       remapAnnotationsOnEdit(prevText, newText);
       prevText = newText;
+      if(!composing) autoConvertAround(rg.start, rg.end);
     }
     render();
   }
@@ -3895,7 +4057,7 @@
     annotations.forEach((a, idx) => {
       if(!isKanji(charAtIdx(text, idx))) return;
       const b = Object.assign({}, a, { kami: '', shimo: '' });
-      delete b.kamiLeft; delete b.kamiDx; delete b.kamiDy;
+      delete b.kamiLeft; delete b.kamiDx; delete b.kamiDy; delete b.shimoDx; delete b.shimoDy;
       next.set(keptBefore[idx], b);
     });
     annotations = next;
