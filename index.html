@@ -425,9 +425,7 @@
   }
 
   /* 傍線・波線(字の左側) */
-  .side-line{ position: absolute; pointer-events: none; }
-  .side-line.straight{ width: 0; border-left: 1.2px solid var(--ink); }
-  .side-line.wavy{ background-repeat: repeat-y; background-position: 0 0; }
+  .side-line{ position: absolute; pointer-events: none; overflow: visible; color: var(--ink); }
   .caret-bar{
     position: fixed;
     height: 2px;
@@ -480,17 +478,8 @@
   /* 上記号のハイフン:ページ番号と同じく、触れると押せることが分かるようにする */
   /* 上記号・下記号:触れると色が変わり、右上に × が出る(押すとその記号が消える) */
   .anno.mark-hit{ pointer-events: auto; cursor: default; padding: 1px 3px; border-radius: 3px; z-index: 5; } /* 隣のマスより上に出して、触れるようにする */
-  .anno.mark-hit:hover, .anno.mark-hit.is-hot{ background: rgba(0,23,193,.10); color: var(--dads-primary); }
+  .anno.mark-hit:hover{ background: rgba(0,23,193,.10); color: var(--dads-primary); }
   .anno.hyphen-mark{ cursor: pointer; padding: 2px 5px; }
-  .mark-close{
-    position: fixed; z-index: 66;
-    width: 18px; height: 18px; padding: 0; border: none; border-radius: 50%;
-    background: var(--dads-primary); color: #fff; cursor: pointer;
-    font: 700 12px/18px var(--dads-font); text-align: center;
-    box-shadow: 0 1px 4px rgba(0,0,0,.25);
-  }
-  .mark-close:hover{ background: #c4001a; }
-  .mark-close[hidden]{ display: none; }
   .hyphen-panel{ padding: 8px 10px; }
   .hyphen-panel-title{ font-size: 12px; font-weight: 700; color: var(--dads-ink); margin: 0 0 4px; }
   .hyphen-row .anno-label{ width: 24px; min-width: 24px; }
@@ -681,7 +670,7 @@
     @page{ size: 297mm 210mm; margin: 0; }
     body{ background:#fff !important; }
     .toolbar, .sidebar, .caret-bar, .hidden-input,
-    .anno-panel, .kunten-picker, .context-menu, .ids-window, .composer-window, .help-window, .site-footer, .file-gutter, .mark-close{ display:none !important; }
+    .anno-panel, .kunten-picker, .context-menu, .ids-window, .composer-window, .help-window, .site-footer, .file-gutter{ display:none !important; }
     html, body{ height:auto !important; overflow:visible !important; display:block !important; }
     .app-body, .main-col, .workspace-area{ display:block !important; }
     .workspace-scroll{ overflow:visible !important; }
@@ -1702,87 +1691,69 @@
     const sp = lineSpans.find(sp => idx >= sp.start && idx < sp.end);
     return sp ? sp : null;
   }
-  // 1マス分の線を、字の左側に描く。範囲の初めの字は字の上端から、終わりの字は字の下端まで
-  const WAVE_SVG = "data:image/svg+xml;utf8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="6" height="8" viewBox="0 0 6 8"><path d="M3 0 Q5.6 2 3 4 Q0.4 6 3 8" fill="none" stroke="#2b2a28" stroke-width="1"/></svg>');
-  function addSideLine(el, idx, text){
-    const sp = lineTypeAt(idx);
-    if(!sp) return;
+  // 線は、同じ行に続く字の分をひと続きの1本(SVG)として描く。マスごとに分けないので、波線も途切れずになめらかにつながり、
+  // 印刷・PDF でも同じように出る。範囲の初めの字は字の上端から、終わりの字は字の下端まで引く
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  function drawSideLineRun(contentEl, run, text){
     const scale = state.fontSize / ANNO_BASE_SIZE;
     const glyphTop = (cellH - state.fontSize) / 2, glyphBottom = (cellH + state.fontSize) / 2;
-    const isFirst = idx === sp.start;
-    const isLast = nextCharIdx(text, idx) >= sp.end;
-    const top = isFirst ? glyphTop : 0;
-    const bottom = isLast ? glyphBottom : cellH;
-    const ln = document.createElement('div');
-    ln.className = 'side-line ' + sp.type;
-    const x = state.fontSize / 2 + 2 * scale; // 字の左端から少し離す
-    if(sp.type === 'wavy'){
-      ln.style.width = (6 * scale) + 'px';
-      ln.style.left = 'calc(50% - ' + (x + 3 * scale) + 'px)';
-      ln.style.backgroundImage = 'url("' + WAVE_SVG + '")';
-      ln.style.backgroundSize = (6 * scale) + 'px ' + (8 * scale) + 'px';
+    const isFirst = run.firstIdx === run.span.start;
+    const isLast = nextCharIdx(text, run.lastIdx) >= run.span.end;
+    const top = run.firstRow * cellH + (isFirst ? glyphTop : 0);
+    const bottom = run.lastRow * cellH + (isLast ? glyphBottom : cellH);
+    const len = bottom - top;
+    if(len <= 0) return;
+    const amp = 2 * scale;                 // 波の振れ幅(片側)
+    const w = Math.ceil(amp * 2 + 4);         // SVG の幅
+    const cx = w / 2;
+    // 字の中心から、字の左端より少し外側へ
+    const lineFromRight = run.col * cellW + cellW / 2 + state.fontSize / 2 + 2 * scale;
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('class', 'side-line');
+    svg.setAttribute('width', w);
+    svg.setAttribute('height', len);
+    svg.setAttribute('viewBox', '0 0 ' + w + ' ' + len);
+    svg.style.right = (lineFromRight - cx) + 'px';
+    svg.style.top = top + 'px';
+    const path = document.createElementNS(SVG_NS, 'path');
+    let d;
+    if(run.span.type === 'wavy'){
+      // 半波の長さが約 5.5px(文字の大きさ20pxのとき)になるよう、長さに合わせて波の数を決める(端がきれいに終わる)
+      const n = Math.max(1, Math.round(len / (5.5 * scale)));
+      const h = len / n;
+      d = 'M' + cx + ' 0';
+      for(let k = 0; k < n; k++){
+        const sign = (k % 2 === 0) ? 1 : -1;
+        d += ' Q' + (cx + sign * amp * 2).toFixed(2) + ' ' + (k * h + h / 2).toFixed(2) + ' ' + cx + ' ' + ((k + 1) * h).toFixed(2);
+      }
     } else {
-      ln.style.left = 'calc(50% - ' + x + 'px)';
+      d = 'M' + cx + ' 0 L' + cx + ' ' + len.toFixed(2);
     }
-    ln.style.top = top + 'px';
-    ln.style.height = Math.max(0, bottom - top) + 'px';
-    el.appendChild(ln);
+    path.setAttribute('d', d);
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', 'currentColor');
+    path.setAttribute('stroke-width', (1.1 * Math.max(scale, 0.8)).toFixed(2));
+    path.setAttribute('stroke-linecap', 'round');
+    path.setAttribute('stroke-linejoin', 'round');
+    svg.appendChild(path);
+    contentEl.appendChild(svg);
   }
-
-  // ---------- 上記号・下記号の削除(マウスを重ねると色が変わり、右上の × で消せる) ----------
-  const markCloseBtn = document.createElement('button');
-  markCloseBtn.type = 'button';
-  markCloseBtn.className = 'mark-close';
-  markCloseBtn.textContent = '×';
-  markCloseBtn.title = 'この記号を消す';
-  markCloseBtn.setAttribute('aria-label', 'この記号を消す');
-  markCloseBtn.hidden = true;
-  document.body.appendChild(markCloseBtn);
-  let markCloseTarget = null;   // { span, idx, field, pos }
-  let markCloseHideTimer = null;
-  function hideMarkClose(){
-    clearTimeout(markCloseHideTimer);
-    markCloseBtn.hidden = true;
-    if(markCloseTarget && markCloseTarget.span) markCloseTarget.span.classList.remove('is-hot');
-    markCloseTarget = null;
-  }
-  function scheduleHideMarkClose(){
-    clearTimeout(markCloseHideTimer);
-    markCloseHideTimer = setTimeout(hideMarkClose, 220);
-  }
-  function showMarkClose(target){
-    clearTimeout(markCloseHideTimer);
-    if(markCloseTarget && markCloseTarget.span !== target.span) markCloseTarget.span.classList.remove('is-hot');
-    markCloseTarget = target;
-    target.span.classList.add('is-hot');
-    const r = target.span.getBoundingClientRect();
-    markCloseBtn.hidden = false;
-    markCloseBtn.style.left = Math.round(r.right - 5) + 'px';
-    markCloseBtn.style.top = Math.round(r.top - 11) + 'px';
-  }
-  markCloseBtn.addEventListener('mouseenter', () => { clearTimeout(markCloseHideTimer); });
-  markCloseBtn.addEventListener('mouseleave', scheduleHideMarkClose);
-  markCloseBtn.addEventListener('mousedown', (e) => { e.stopPropagation(); e.preventDefault(); });
-  markCloseBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const t = markCloseTarget;
-    hideMarkClose();
-    if(t) deleteMark(t.idx, t.field, t.pos);
-    hiddenInput.focus();
-  });
-  window.addEventListener('scroll', hideMarkClose, true);
-
-  // 漢字 idx の上記号・下記号(field)を消す。pos があれば、2字の下記号(。」など)のうちその1字だけを消す
-  function deleteMark(idx, field, pos){
-    const a = annotations.get(idx);
-    if(!a || !a[field]) return;
-    pushUndo(true, 'main:deleteMark');
-    const chars = Array.from(a[field]);
-    if(pos === null || pos === undefined || chars.length <= 1) a[field] = '';
-    else { chars.splice(pos, 1); a[field] = chars.join(''); }
-    if(a[field] !== '-'){ delete a[field + 'Dx']; delete a[field + 'Dy']; if(field === 'kami') delete a.kamiLeft; }
-    if(annoPanelEl && annoPanelEl.classList.contains('hyphen-panel')) closeAnnotationPanel();
-    render();
+  // 1つの行(列)の中で、線を引く字のまとまりを探して描く
+  function drawSideLinesInColumn(contentEl, col, cIdx, text){
+    if(!lineSpans.length) return;
+    let run = null;
+    const flush = () => { if(run) drawSideLineRun(contentEl, run, text); run = null; };
+    col.forEach((cell, rIdx) => {
+      const ch = charAtIdx(text, cell.mainIdx);
+      const sp = ch === '\n' ? null : lineTypeAt(cell.mainIdx);
+      if(sp && run && run.span === sp && run.lastRow === rIdx - 1){
+        run.lastRow = rIdx; run.lastIdx = cell.mainIdx;
+      } else {
+        flush();
+        if(sp) run = { span: sp, col: cIdx, firstRow: rIdx, lastRow: rIdx, firstIdx: cell.mainIdx, lastIdx: cell.mainIdx };
+      }
+    });
+    flush();
   }
 
   // ---------- 上下記号と漢字の間のキャレット ----------
@@ -1930,15 +1901,14 @@
     return { rect: g.rect, y: (prevY + nextY) / 2 };
   }
 
-  // 上記号・下記号の字を、触れると色が変わり、× を出せるようにする。
+  // 上記号・下記号の字を、触れると色が変わるようにする。
   // 字を押すと、押した所が字の上半分ならその記号の前、下半分なら後ろにキャレットを置く
   function makeMarkInteractive(span, idx, field, pos, title){
     if(!span) return span;
     span.classList.add('mark-hit');
     span.dataset.markField = field;
     span.dataset.markPos = (pos === null || pos === undefined) ? '0' : String(pos);
-    span.title = title || '右上の × で、この記号を消せます';
-    const target = { span, idx, field, pos };
+    if(title) span.title = title;
     span.addEventListener('mousedown', (e) => {
       e.stopPropagation(); e.preventDefault();
       if(e.button !== 0 || span.classList.contains('hyphen-mark')) return;
@@ -1958,8 +1928,6 @@
       hiddenInput.focus();
       setCaretState(st);
     });
-    span.addEventListener('mouseenter', () => showMarkClose(target));
-    span.addEventListener('mouseleave', scheduleHideMarkClose);
     return span;
   }
 
@@ -1996,8 +1964,6 @@
       sub.textContent = text[idx];
       el.appendChild(sub);
     });
-
-    if(ch !== '\n') addSideLine(el, cell.mainIdx, text);
 
     if(isKanji(ch)){
       el.classList.add('is-kanji');
@@ -2164,7 +2130,6 @@
   }
 
   function render(){
-    hideMarkClose(); // 記号の字は作り直すので、× も一度隠す
     const text = hiddenInput.value;
     layout = computeLayout(text);
 
@@ -2179,6 +2144,7 @@
         col.forEach((cell, rIdx) => {
           refs.contentEl.appendChild(buildCell(cell, cIdx, rIdx, text));
         });
+        drawSideLinesInColumn(refs.contentEl, col, cIdx, text);
         // 空の行(改行だけの行):選択に含まれたときに分かるよう、行の初めに目印を置く
         if(col.length === 0 && typeof col.startIdx === 'number' && text[col.startIdx] === '\n'){
           const mark = document.createElement('div');
