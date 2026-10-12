@@ -3,6 +3,17 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script>
+  // スマートフォンでは使えないようにする(パソコンでの利用をお願いする案内だけを出す)。タブレットは対象外
+  (function(){
+    var ua = navigator.userAgent || '';
+    var phone = (navigator.userAgentData && navigator.userAgentData.mobile === true) ||
+      /iPhone|iPod|Android.+Mobile|Windows Phone|BlackBerry|BB10|Opera Mini|IEMobile|Mobile.+Firefox/i.test(ua);
+    // 画面の短い辺が小さい端末だけをスマートフォンとみなす(タブレットはそのまま使える)
+    var shortSide = Math.min(screen.width || 9999, screen.height || 9999);
+    if(phone && shortSide < 600) document.documentElement.classList.add('is-phone');
+  })();
+</script>
 <title>漢文エディタ 交利</title>
 <meta name="description" content="縦書きで漢文を書くための、ブラウザで動くエディタ。振り仮名・送り仮名・訓点・上下記号・熟字訓を付けられ、CJK統合漢字拡張の漢字の検索や、部品からの字の組み立てもできます。">
 <meta name="theme-color" content="#0017C1">
@@ -478,8 +489,9 @@
   /* 上記号のハイフン:ページ番号と同じく、触れると押せることが分かるようにする */
   /* 上記号・下記号:触れると色が変わり、右上に × が出る(押すとその記号が消える) */
   .anno.mark-hit{ pointer-events: auto; cursor: default; padding: 1px 3px; border-radius: 3px; z-index: 5; } /* 隣のマスより上に出して、触れるようにする */
-  .anno.mark-hit:hover{ background: rgba(0,23,193,.10); color: var(--dads-primary); }
+  /* ハイフンだけは、押すと位置のパネルが出ることが分かるよう、触れると色が変わる */
   .anno.hyphen-mark{ cursor: pointer; padding: 2px 5px; }
+  .anno.hyphen-mark:hover{ background: rgba(0,23,193,.10); color: var(--dads-primary); }
   .hyphen-panel{ padding: 8px 10px; }
   .hyphen-panel-title{ font-size: 12px; font-weight: 700; color: var(--dads-ink); margin: 0 0 4px; }
   .hyphen-row .anno-label{ width: 24px; min-width: 24px; }
@@ -695,9 +707,33 @@
     .page::before{ display:none !important; }
     .page-number{ color:#999 !important; }
   }
+
+  /* ---------- スマートフォンでの案内 ---------- */
+  .phone-notice{ display: none; }
+  html.is-phone body{ display: block !important; overflow: auto !important; background: var(--dads-surface) !important; }
+  html.is-phone body > *:not(.phone-notice){ display: none !important; }
+  html.is-phone .phone-notice{
+    display: flex; align-items: center; justify-content: center;
+    min-height: 100vh; min-height: 100dvh; padding: 24px 16px; box-sizing: border-box;
+  }
+  .phone-notice-box{
+    max-width: 360px; width: 100%; box-sizing: border-box; text-align: center;
+    background: var(--dads-canvas); border: 1px solid var(--dads-surface-alt); border-radius: 12px;
+    padding: 28px 20px; font-family: var(--dads-font); color: var(--dads-ink);
+  }
+  .phone-notice-title{ font-family: "Hiragino Mincho ProN","Yu Mincho",serif; font-size: 22px; letter-spacing: .12em; color: var(--dads-ink-strong); margin-bottom: 16px; }
+  .phone-notice p{ margin: 0; font-size: 16px; line-height: 1.8; font-weight: 700; }
+  .phone-notice .phone-notice-sub{ margin-top: 6px; font-size: 13px; font-weight: 400; color: var(--dads-muted); }
 </style>
 </head>
 <body>
+<div class="phone-notice" role="alert">
+  <div class="phone-notice-box">
+    <div class="phone-notice-title">漢文エディタ 交利</div>
+    <p>このサイトは、<br>パソコンでご利用ください。</p>
+    <p class="phone-notice-sub">スマートフォンでは、ご利用いただけません。</p>
+  </div>
+</div>
 <noscript><p style="margin:0;padding:12px 16px;background:#fff3cd;font-family:sans-serif;">交利を使うには、ブラウザの JavaScript を有効にしてください。</p></noscript>
 
   <div class="app-body">
@@ -912,6 +948,8 @@
 <script>
 (function(){
   "use strict";
+  // スマートフォンでは、エディタを動かさない
+  if(document.documentElement.classList.contains('is-phone')) return;
 
 
   const PAGE_W = 1123, PAGE_H = 794; // 297mm × 210mm(A4横)を96dpiのCSSピクセルに換算
