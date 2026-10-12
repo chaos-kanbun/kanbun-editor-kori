@@ -15,7 +15,7 @@
   })();
 </script>
 <title>漢文エディタ 交利</title>
-<meta name="description" content="縦書きで漢文を書くための、ブラウザで動くエディタ。振り仮名・送り仮名・訓点・上下記号・熟字訓を付けられ、CJK統合漢字拡張の漢字の検索や、部品からの字の組み立てもできます。">
+<meta name="description" content="縦書きで漢文を書くための、ブラウザで動くエディタ。振り仮名・送り仮名・訓点・句読点・熟字訓を付けられ、CJK統合漢字拡張の漢字の検索や、部品からの字の組み立てもできます。">
 <meta name="theme-color" content="#0017C1">
 <meta name="color-scheme" content="light">
 <link rel="icon" href="icons/favicon.svg" type="image/svg+xml">
@@ -25,7 +25,7 @@
 <!-- SNS などでリンクを共有したときの表示 -->
 <meta property="og:type" content="website">
 <meta property="og:title" content="漢文エディタ 交利">
-<meta property="og:description" content="縦書きで漢文を書くための、ブラウザで動くエディタ。振り仮名・送り仮名・訓点・上下記号・熟字訓を付けられ、CJK統合漢字拡張の漢字の検索や、部品からの字の組み立てもできます。">
+<meta property="og:description" content="縦書きで漢文を書くための、ブラウザで動くエディタ。振り仮名・送り仮名・訓点・句読点・熟字訓を付けられ、CJK統合漢字拡張の漢字の検索や、部品からの字の組み立てもできます。">
 <meta property="og:locale" content="ja_JP">
 <meta name="twitter:card" content="summary">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -849,7 +849,7 @@
       <details class="side-section">
         <summary>記号を消す</summary>
         <div class="side-body">
-          <p class="side-note">本文から漢字以外の字(句読点・括弧・仮名など)をすべて消し、上下記号も消します。改行と、振り仮名・送り仮名・訓点はそのまま残します。Ctrl+Zで元に戻せます。</p>
+          <p class="side-note">本文から漢字以外の字(句読点・括弧・仮名など)をすべて消します。漢字と漢字の間に入っている句読点・括弧も消します。改行と、振り仮名・送り仮名・訓点はそのまま残します。Ctrl+Zで元に戻せます。</p>
           <button class="btn" id="btn-strip-symbols">漢字以外のすべての記号を消す</button>
           <p class="jitai-status" id="strip-status" aria-live="polite"></p>
         </div>
@@ -1737,6 +1737,49 @@
     });
     lineSpans = out;
   }
+  const IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '');
+  const LINE_SHORTCUT_LABEL = IS_MAC
+    ? { straight: '⌘+Shift+U', wavy: '⌘+Shift+L', remove: '⌘+Shift+X', clear: '⌘+Shift+F' }
+    : { straight: 'Ctrl+Shift+U', wavy: 'Ctrl+Shift+L', remove: 'Ctrl+Shift+X', clear: 'Ctrl+Shift+F' };
+  // すべての訓点をクリア:範囲の中の漢字の、振り仮名・送り仮名・訓点・左振り仮名・左送り仮名・熟字訓を消す
+  // (字と字の間の句読点・括弧などは残す)
+  const KUNTEN_FIELDS = ['furi', 'okuri', 'kunten', 'hFuri', 'hOkuri'];
+  function hasKuntenIn(start, end){
+    for(const [idx, a] of annotations){ if(idx >= start && idx < end && KUNTEN_FIELDS.some(f => a[f])) return true; }
+    return jukujikunSpans.some(sp => sp.start < end && sp.end > start);
+  }
+  function clearKunten(start, end){
+    if(end <= start || !hasKuntenIn(start, end)) return false;
+    pushUndo(true, 'main:clearKunten');
+    annotations.forEach((a, idx) => { if(idx >= start && idx < end) KUNTEN_FIELDS.forEach(f => { a[f] = ''; }); });
+    jukujikunSpans = jukujikunSpans.filter(sp => !(sp.start < end && sp.end > start));
+    closeAnnotationPanel();
+    render();
+    hiddenInput.focus();
+    return true;
+  }
+  // ショートカットから:選んでいればその中の漢字すべて、選んでいなければキャレットのすぐ上(無ければすぐ下)の漢字
+  function clearKuntenShortcut(){
+    const t = hiddenInput.value;
+    let ss = hiddenInput.selectionStart, se = hiddenInput.selectionEnd;
+    if(se <= ss){
+      const before = ss > 0 ? prevCharIdx(t, ss) : -1;
+      if(before >= 0 && isKanji(charAtIdx(t, before))){ ss = before; se = before + charAtIdx(t, before).length; }
+      else if(ss < t.length && isKanji(charAtIdx(t, ss))){ se = ss + charAtIdx(t, ss).length; }
+      else return;
+    }
+    clearKunten(ss, se);
+  }
+  // ショートカットキーから:選んでいる字に線を引く(type が null なら消す)
+  function applyLineShortcut(type){
+    const ss = hiddenInput.selectionStart, se = hiddenInput.selectionEnd;
+    if(se <= ss) return;
+    if(!type && !lineSpans.some(sp => sp.start < se && sp.end > ss)) return;
+    pushUndo(true, 'main:line');
+    setLines(ss, se, type);
+    render();
+    hiddenInput.focus();
+  }
   function lineTypeAt(idx){
     const sp = lineSpans.find(sp => idx >= sp.start && idx < sp.end);
     return sp ? sp : null;
@@ -2006,27 +2049,55 @@
     handleInput();
   }
 
-  // マスの中のクリック位置が、上下記号と漢字の間なら、その位置を返す(そうでなければ null)
+  // クリック(ドラッグ)した位置に近い「上下記号と漢字の間」を返す(そうでなければ null)。
+  // 押した行(列)の中の、上記号・漢字・下記号を上から順に並べ、押した所より中心が下にある最初の物の
+  // 「すぐ上の切れ目」を選ぶ。つまり、どの物も上半分を押せばその上、下半分を押せばその下に入る。
+  // 記号と字の間のすき間は、どちらに近いかで決まるので、細かく狙わなくてよい
   function markSlotAtPoint(clientX, clientY){
-    for(const c of allCellEls){
-      if(!c.el.classList.contains('is-kanji') || c.idx !== Number(c.el.getAttribute('data-idx'))) continue;
-      const r = c.el.getBoundingClientRect();
-      if(clientX < r.left || clientX > r.right || clientY < r.top - 4 || clientY > r.bottom + 4) continue;
-      const a = annotations.get(c.idx);
-      if(!a || (!a.kami && !a.shimo)) return null;
-      const g = markGeometry(c.el);
-      const fs = state.fontSize * zoom;
-      const end = c.idx + charAtIdx(hiddenInput.value, c.idx).length;
-      if(a.kami && g.kami !== null && clientY >= g.kami && clientY < g.glyphTop + fs * 0.2){
-        return { pos: c.idx, mark: { idx: c.idx, field: 'kami' } };
+    let pageIdx = -1, rect = null;
+    for(let i = 0; i < pageRefs.length; i++){
+      const r = pageRefs[i].contentEl.getBoundingClientRect();
+      if(clientX >= r.left && clientX <= r.right && clientY >= r.top - cellH * zoom && clientY <= r.bottom + cellH * zoom){ pageIdx = i; rect = r; break; }
+    }
+    if(pageIdx < 0) return null;
+    const page = layout.pages[pageIdx] || [];
+    const colIdx = Math.floor((contentWidth - (clientX - rect.left) / zoom) / cellW);
+    const col = page[colIdx];
+    if(!col || !col.length) return null;
+    const t = hiddenInput.value;
+    const elOf = new Map();
+    allCellEls.forEach(c => { if(c.el.classList.contains('is-kanji')) elOf.set(c.idx, c.el); });
+    // 押した所に近いマスだけを見る(前後1マスずつ。はみ出した記号も拾えるように)
+    const localY = (clientY - rect.top) / zoom;
+    const row = Math.max(0, Math.min(col.length - 1, Math.floor(localY / cellH)));
+    const items = [];
+    for(let r = Math.max(0, row - 1); r <= Math.min(col.length - 1, row + 1); r++){
+      const cell = col[r];
+      const idx = cell.mainIdx;
+      const ch = charAtIdx(t, idx);
+      const a = annotations.get(idx);
+      const el = elOf.get(idx);
+      const end = idx + ch.length;
+      if(!el || !a || (!a.kami && !a.shimo)) continue;
+      const g = markGeometry(el);
+      const glyphC = (g.glyphTop + g.glyphBottom) / 2;
+      if(a.kami && g.kami !== null) items.push({ y: g.kami, before: { pos: idx, mark: null } });
+      items.push({ y: glyphC, before: a.kami ? { pos: idx, mark: { idx, field: 'kami' } } : { pos: idx, mark: null } });
+      g.shimo.forEach((cy, p) => items.push({ y: cy, before: { pos: end, mark: { idx, field: 'shimo', p } } }));
+      if(a.shimo) items.push({ y: Infinity, before: { pos: end, mark: null }, tail: true, after: g.shimo.length ? g.shimo[g.shimo.length - 1] : g.glyphBottom });
+    }
+    if(!items.length) return null;
+    items.sort((x, y) => x.y - y.y);
+    for(const it of items){
+      if(it.tail){
+        // 最後の下記号より下:その下記号の中心から、次の字までの間はふつうの位置
+        if(clientY > it.after && clientY < it.after + state.fontSize * zoom) return it.before;
+        continue;
       }
-      if(a.shimo && g.shimo.length){
-        if(clientY > g.glyphBottom - fs * 0.2 && clientY <= g.shimo[0]) return { pos: end, mark: { idx: c.idx, field: 'shimo', p: 0 } };
-        for(let p = 1; p < g.shimo.length; p++){
-          if(clientY > g.shimo[p - 1] && clientY <= g.shimo[p]) return { pos: end, mark: { idx: c.idx, field: 'shimo', p } };
-        }
+      if(clientY < it.y){
+        // その物の中心より上を押した:その物のすぐ上の切れ目
+        return it.before.mark ? it.before : null;
       }
-      return null;
     }
     return null;
   }
@@ -2632,8 +2703,6 @@
       ['furi',   '振り仮名'],
       ['okuri',  '送り仮名'],
       ['kunten', '訓点'],
-      ['kami',   '上記号'],
-      ['shimo',  '下記号'],
       ['hFuri',  '左振り仮名'],
       ['hOkuri', '左送り仮名'],
     ];
@@ -2837,19 +2906,6 @@
       }
     }, 'Ctrl+V');
 
-    addMenuSep();
-    // 何も選んでいないときは文書全体が対象になるので、それが分かる名前にする
-    const noSelection = (s === e);
-    addMenuItem(noSelection ? 'すべての記号を上下記号にする' : '選択した範囲の記号を上下記号にする', () => {
-      hiddenInput.focus();
-      hiddenInput.setSelectionRange(s, e);
-      convertSelectionToAnnotation();
-    }, 'Ctrl+Shift+K');
-    addMenuItem(noSelection ? 'すべての文字の上下記号を記号に戻す' : '選択した範囲の上下記号を記号に戻す', () => {
-      hiddenInput.focus();
-      hiddenInput.setSelectionRange(s, e);
-      releaseSelectionAnnotations();
-    }, 'Ctrl+Shift+O');
 
     if(selLen >= 1){
       const jc = jitaiCandidates(hiddenInput.value.slice(s, e));
@@ -2874,18 +2930,28 @@
         pushUndo(true, 'main:line');
         setLines(s, e, 'straight');
         render(); hiddenInput.focus();
-      });
+      }, LINE_SHORTCUT_LABEL.straight);
       addMenuItem('波線を引く', () => {
         pushUndo(true, 'main:line');
         setLines(s, e, 'wavy');
         render(); hiddenInput.focus();
-      });
+      }, LINE_SHORTCUT_LABEL.wavy);
       if(lineSpans.some(sp => sp.start < e && sp.end > s)){
         addMenuItem('傍線・波線を消す', () => {
           pushUndo(true, 'main:line');
           setLines(s, e, null);
           render(); hiddenInput.focus();
-        });
+        }, LINE_SHORTCUT_LABEL.remove);
+      }
+    }
+
+    // すべての訓点をクリア(選んでいれば選んだ漢字すべて、選んでいなければ右クリックした漢字)
+    {
+      let cs = s, ce = e;
+      if(ce <= cs && kanjiEl){ cs = Number(kanjiEl.getAttribute('data-idx')); ce = cs + charAtIdx(hiddenInput.value, cs).length; }
+      if(ce > cs){
+        addMenuSep();
+        addMenuItem('すべての訓点をクリア', () => { clearKunten(cs, ce); }, LINE_SHORTCUT_LABEL.clear);
       }
     }
 
@@ -3565,8 +3631,17 @@
     else if((k === 'z' && e.shiftKey) || k === 'y'){ e.preventDefault(); redo(); }
     else if(k === 's' && e.shiftKey){ e.preventDefault(); saveDocumentAs(); }
     else if(k === 's'){ e.preventDefault(); saveDocument(); }
-    else if(k === 'k' && e.shiftKey){ e.preventDefault(); convertSelectionToAnnotation(); }
-    else if(k === 'o' && e.shiftKey){ e.preventDefault(); releaseSelectionAnnotations(); }
+    // 傍線 Ctrl+Shift+U・波線 Ctrl+Shift+L・線を消す Ctrl+Shift+X・すべての訓点をクリア Ctrl+Shift+F
+    // (Mac では Ctrl の代わりに ⌘)。主なブラウザ(Chrome・Edge・Firefox・Safari)や OS の決まった働きと
+    // 重なりにくい組み合わせを選んでいる
+    // (K・O・P・N・T・W・B・D・I・J・C・M・R・A・H・E・S・Y・Q・G・V・Z は、どれかのブラウザや OS で使われている)
+    else if(e.shiftKey && (IS_MAC ? (e.metaKey && !e.ctrlKey) : (e.ctrlKey && !e.metaKey)) &&
+            (e.code === 'KeyU' || e.code === 'KeyL' || e.code === 'KeyX' || e.code === 'KeyF') &&
+            (e.target === hiddenInput || !(e.target.closest && e.target.closest('input, textarea, select, [contenteditable]')))){
+      e.preventDefault();
+      if(e.code === 'KeyF') clearKuntenShortcut();
+      else applyLineShortcut(e.code === 'KeyU' ? 'straight' : (e.code === 'KeyL' ? 'wavy' : null));
+    }
   }, true);
 
   // ---------- イベント ----------
@@ -3801,8 +3876,6 @@
     { key: 'furi',   label: '振り仮名' },
     { key: 'okuri',  label: '送り仮名' },
     { key: 'kunten', label: '訓点' },
-    { key: 'kami',   label: '上記号' },
-    { key: 'shimo',  label: '下記号' },
     { key: 'hFuri',  label: '左振り仮名' },
     { key: 'hOkuri', label: '左送り仮名' },
   ];
@@ -4595,7 +4668,7 @@
   document.getElementById('btn-strip-symbols').addEventListener('click', () => {
     const r = stripNonKanji();
     document.getElementById('strip-status').textContent = (r.removedChars || r.removedMarks)
-      ? '本文の字を' + r.removedChars + '字、上下記号を' + r.removedMarks + '個消しました。'
+      ? '記号などを' + (r.removedChars + r.removedMarks) + '個消しました。'
       : '消す記号はありませんでした。';
     hiddenInput.focus();
   });
