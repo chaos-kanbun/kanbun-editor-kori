@@ -462,6 +462,16 @@
     text-stroke: var(--kanji-stroke, 0.5px) currentColor;
   }
   .cell.cell-selected{ background: var(--dads-tint-blue-selected); }
+  /* 字だけを選び、その字の上記号・下記号は選んでいないとき:色を字の所までにする */
+  .cell.cell-selected.sel-trim-top{ --st: var(--sel-trim, 10px); }
+  .cell.cell-selected.sel-trim-bottom{ --sb: var(--sel-trim, 10px); }
+  .cell.cell-selected.sel-trim-top, .cell.cell-selected.sel-trim-bottom{
+    background: linear-gradient(to bottom,
+      transparent 0, transparent var(--st, 0px),
+      var(--dads-tint-blue-selected) var(--st, 0px), var(--dads-tint-blue-selected) calc(100% - var(--sb, 0px)),
+      transparent calc(100% - var(--sb, 0px)));
+  }
+  .anno.mark-selected{ background: var(--dads-tint-blue-selected); border-radius: 2px; }
   .anno{
     position:absolute;
     writing-mode: vertical-rl;
@@ -774,7 +784,7 @@
         </div>
         <div class="control">
           <div class="row"><label style="flex:1" for="ctl-line">行間</label></div>
-          <input type="number" id="ctl-line" step="1" value="36" class="num-input">
+          <input type="number" id="ctl-line" step="1" value="35" class="num-input">
         </div>
         <div class="control">
           <div class="row"><label style="flex:1" for="ctl-char">字間</label></div>
@@ -963,7 +973,7 @@
     'ァ','ィ','ゥ','ェ','ォ','ッ','ャ','ュ','ョ','ヮ'
   ]);
 
-  const state = { fontSize:19, lineSpacing:36, charSpacing:30, margin:75, annoScalePercent:45, kanjiWeight:650, annoWeight:900, jukujikunCharSpacing:0, pageNumberFormat:'n-of-m' };
+  const state = { fontSize:19, lineSpacing:35, charSpacing:30, margin:75, annoScalePercent:45, kanjiWeight:650, annoWeight:900, jukujikunCharSpacing:0, pageNumberFormat:'n-of-m' };
   let cellW, cellH, rowsPerColumn, colsPerPage, contentWidth, contentHeight;
 
   // 漢字判定(漢文注釈の対象)
@@ -1509,6 +1519,7 @@
     const kanjiSpace = state.fontSize + 12; // 漢字1字に確保する正方形スペース(注釈表示用)
     cellW = Math.max(state.fontSize + state.lineSpacing, kanjiSpace);   // 列の幅
     cellH = Math.max(state.fontSize + state.charSpacing, kanjiSpace);  // 1文字分の高さ
+    root.style.setProperty('--sel-trim', Math.max(0, (cellH - state.fontSize) / 2 - 2) + 'px'); // 選択の色を字の所までにするときの余白
     contentWidth = PAGE_W - state.margin * 2;
     contentHeight = PAGE_H - state.margin * 2;
     rowsPerColumn = Math.max(1, Math.floor(contentHeight / cellH));
@@ -1644,11 +1655,10 @@
     if(pageIdx === null) return;
     const rect = pageRefs[pageIdx].contentEl.getBoundingClientRect();
     const idx = pointToIndex(pageIdx, (e.clientX - rect.left) / zoom, (e.clientY - rect.top) / zoom);
-    const start = Math.min(dragAnchor, idx);
-    const end = Math.max(dragAnchor, idx);
-    const direction = idx >= dragAnchor ? 'forward' : 'backward';
-    hiddenInput.setSelectionRange(start, end, direction);
-    updateCaretVisual();
+    // ドラッグの端が上下記号と漢字の間なら、そこまでを選ぶ(記号を含めるか含めないかを選べる)
+    const focus = markSlotAtPoint(e.clientX, e.clientY) || { pos: idx, mark: null };
+    if(!stopValid(dragAnchor)) dragAnchor = { pos: Math.min(dragAnchor.pos || 0, hiddenInput.value.length), mark: null };
+    applyStopSelection(dragAnchor, focus);
   });
   document.addEventListener('mouseup', () => { dragAnchor = null; });
 
@@ -1668,11 +1678,13 @@
       const x = (e.clientX - rect.left) / zoom;
       const y = (e.clientY - rect.top) / zoom;
       const idx = pointToIndex(pageIdx, x, y);
-      dragAnchor = idx;
       hiddenInput.focus();
       // 上下記号と漢字の間を押したときは、その間にキャレットを置く
       const slot = markSlotAtPoint(e.clientX, e.clientY);
-      setCaretState(slot || { pos: idx, mark: null });
+      const st = slot || { pos: idx, mark: null };
+      markSel = null;
+      dragAnchor = st;
+      setCaretState(st);
     });
     pageEl.appendChild(contentEl);
 
@@ -1888,6 +1900,112 @@
     markCaret = null;
     handleInput();
   }
+  // ---------- 上下記号も1字として扱う選択 ----------
+  // キャレットの止まる所(stop = { pos, mark })に順番を付ける。同じテキスト位置では
+  //   上の字の下記号の間 < ふつうの位置 < 上記号と漢字の間
+  function stopKey(st){
+    if(!st.mark) return [st.pos, 0];
+    if(st.mark.field === 'kami') return [st.pos, 1];
+    const a = annotations.get(st.mark.idx);
+    const n = a && a.shimo ? Array.from(a.shimo).length : 0;
+    return [st.pos, -(n - st.mark.p)];
+  }
+  function cmpStop(a, b){ const ka = stopKey(a), kb = stopKey(b); return (ka[0] - kb[0]) || (ka[1] - kb[1]); }
+  function stopValid(st){
+    if(!st || typeof st.pos !== 'number' || st.pos < 0 || st.pos > hiddenInput.value.length) return false;
+    if(!st.mark) return true;
+    const a = annotations.get(st.mark.idx);
+    if(!a || !a[st.mark.field]) return false;
+    if(st.pos !== markCaretTextPos(st.mark)) return false;
+    if(st.mark.field === 'shimo') return st.mark.p >= 0 && st.mark.p < Array.from(a.shimo).length;
+    return true;
+  }
+  // 選択の両端が上下記号の間にあるときだけ使う(そうでなければ null で、ふつうのテキストの選択)
+  let markSel = null; // { anchor: stop, focus: stop }
+  function orderedMarkSel(){
+    if(!markSel) return null;
+    const { anchor, focus } = markSel;
+    if(!stopValid(anchor) || !stopValid(focus)){ markSel = null; return null; }
+    const c = cmpStop(anchor, focus);
+    if(c === 0){ markSel = null; return null; }
+    const A = c < 0 ? anchor : focus, B = c < 0 ? focus : anchor;
+    if(hiddenInput.selectionStart !== A.pos || hiddenInput.selectionEnd !== B.pos){ markSel = null; return null; }
+    return [A, B];
+  }
+  // 今の選択の両端(上下記号の間も含む)。何も選んでいなければ null
+  function selectionStops(){
+    const o = orderedMarkSel();
+    if(o) return o;
+    const ss = hiddenInput.selectionStart, se = hiddenInput.selectionEnd;
+    if(se <= ss) return null;
+    return [{ pos: ss, mark: null }, { pos: se, mark: null }];
+  }
+  // stop A から B までに入る「字」(上記号・漢字・下記号を、それぞれ1字として)を順に返す
+  function piecesBetween(A, B){
+    const t = hiddenInput.value;
+    const out = [];
+    let x = A, guard = 0;
+    while(x && cmpStop(x, B) < 0 && guard++ < 200000){
+      if(!x.mark){
+        const ch = charAtIdx(t, x.pos), a = annotations.get(x.pos);
+        if(isKanji(ch) && a && a.kami) out.push({ type: 'kami', idx: x.pos, text: a.kami });
+        else out.push({ type: 'char', idx: x.pos, text: ch });
+      } else if(x.mark.field === 'kami'){
+        out.push({ type: 'char', idx: x.mark.idx, text: charAtIdx(t, x.mark.idx) });
+      } else {
+        const chars = Array.from(annotations.get(x.mark.idx).shimo);
+        out.push({ type: 'shimo', idx: x.mark.idx, p: x.mark.p, text: chars[x.mark.p] });
+      }
+      x = caretForward(x.pos, x.mark);
+    }
+    return out;
+  }
+  // 両端の stop から選択を作る(上下記号の間が端なら markSel に覚える)
+  function applyStopSelection(anchor, focus){
+    const c = cmpStop(anchor, focus);
+    if(c === 0){ markSel = null; setCaretState(focus); return; }
+    const A = c < 0 ? anchor : focus, B = c < 0 ? focus : anchor;
+    markCaret = null;
+    markSel = (A.mark || B.mark) ? { anchor, focus } : null;
+    hiddenInput.setSelectionRange(A.pos, B.pos, c < 0 ? 'forward' : 'backward');
+    updateCaretVisual();
+  }
+  // 選んでいる部分(上下記号の一部だけを含む場合も)を消す。消した後のキャレットの位置へ動かす
+  function deleteStopSelection(A, B){
+    const t = hiddenInput.value;
+    pushUndo(true, 'main:deleteSel');
+    markSel = null; markCaret = null;
+    // 選択の初めが、上の字の下記号の間にあるとき:その下記号のうち、選んだ分(p 字目から後ろ)を消す
+    if(A.mark && A.mark.field === 'shimo'){
+      const a = annotations.get(A.mark.idx);
+      const chars = Array.from(a.shimo);
+      const upto = (B.pos === A.pos && B.mark && B.mark.field === 'shimo' && B.mark.idx === A.mark.idx) ? B.mark.p : chars.length;
+      chars.splice(A.mark.p, upto - A.mark.p);
+      a.shimo = chars.join('');
+      if(a.shimo !== '-'){ delete a.shimoDx; delete a.shimoDy; }
+    }
+    if(A.pos === B.pos){
+      // 記号だけを選んでいた:選択の終わりが「上記号と漢字の間」なら、その上記号も選ばれている
+      if(B.mark && B.mark.field === 'kami' && !(A.mark && A.mark.field === 'kami')){
+        const a = annotations.get(B.mark.idx);
+        a.kami = ''; delete a.kamiDx; delete a.kamiDy; delete a.kamiLeft;
+      }
+      hiddenInput.setSelectionRange(A.pos, A.pos);
+      const keep = (A.mark && stopValid(A)) ? A : { pos: A.pos, mark: null };
+      markCaret = keep.mark;
+      render();
+      return;
+    }
+    // 選んでいない上記号(選択の初めが上記号と漢字の間)と、選んでいない下記号(選択の終わりが下記号の間)は、
+    // 字を消した後も残すため、本文に戻してから前後の字に付け直す
+    let kamiKeep = '', shimoKeep = '';
+    if(A.mark && A.mark.field === 'kami'){ const a = annotations.get(A.mark.idx); kamiKeep = a ? a.kami : ''; }
+    if(B.mark && B.mark.field === 'shimo'){ const a = annotations.get(B.mark.idx); shimoKeep = a ? Array.from(a.shimo).slice(B.mark.p).join('') : ''; }
+    hiddenInput.value = t.slice(0, A.pos) + shimoKeep + kamiKeep + t.slice(B.pos);
+    hiddenInput.setSelectionRange(A.pos + shimoKeep.length, A.pos + shimoKeep.length);
+    handleInput();
+  }
+
   // マスの中のクリック位置が、上下記号と漢字の間なら、その位置を返す(そうでなければ null)
   function markSlotAtPoint(clientX, clientY){
     for(const c of allCellEls){
@@ -1945,6 +2063,7 @@
     if(!span) return span;
     span.classList.add('mark-hit');
     span.dataset.markField = field;
+    span.dataset.markIdx = String(idx);
     span.dataset.markPos = (pos === null || pos === undefined) ? '0' : String(pos);
     if(title) span.title = title;
     span.addEventListener('mousedown', (e) => {
@@ -1964,6 +2083,8 @@
         else st = (p + 1 < n) ? { pos: end, mark: { idx, field: 'shimo', p: p + 1 } } : { pos: end, mark: null };
       }
       hiddenInput.focus();
+      markSel = null;
+      dragAnchor = st;
       setCaretState(st);
     });
     return span;
@@ -2211,15 +2332,34 @@
   function updateSelectionVisual(){
     const s = Math.min(hiddenInput.selectionStart, hiddenInput.selectionEnd);
     const e = Math.max(hiddenInput.selectionStart, hiddenInput.selectionEnd);
+    // 上下記号も1字として、選ばれているかを決める
+    const stops = selectionStops();
+    const pieces = stops ? piecesBetween(stops[0], stops[1]) : [];
+    const selKami = new Set(), selShimo = new Map(), selChar = new Set();
+    pieces.forEach(pc => {
+      if(pc.type === 'kami') selKami.add(pc.idx);
+      else if(pc.type === 'char') selChar.add(pc.idx);
+      else { if(!selShimo.has(pc.idx)) selShimo.set(pc.idx, new Set()); selShimo.get(pc.idx).add(pc.p); }
+    });
     allCellEls.forEach(({ el, idx }) => {
-      if(idx >= s && idx < e) el.classList.add('cell-selected');
-      else el.classList.remove('cell-selected');
+      const on = idx >= s && idx < e;
+      el.classList.toggle('cell-selected', on);
+      // 字は選んでいても、その字の上記号・下記号を選んでいないときは、マスの色を字の所までにとどめる
+      const a = on ? annotations.get(idx) : null;
+      el.classList.toggle('sel-trim-top', !!(a && a.kami && !selKami.has(idx)));
+      el.classList.toggle('sel-trim-bottom', !!(a && a.shimo && (!selShimo.has(idx) || selShimo.get(idx).size < Array.from(a.shimo).length)));
+    });
+    workspace.querySelectorAll('.mark-hit').forEach(sp => {
+      const idx = Number(sp.dataset.markIdx);
+      const f = sp.dataset.markField;
+      const on = f === 'kami' ? selKami.has(idx) : (selShimo.has(idx) && selShimo.get(idx).has(Number(sp.dataset.markPos || 0)));
+      sp.classList.toggle('mark-selected', on);
     });
   }
 
   function updateCaretVisual(){
     updateSelectionVisual();
-    const hasSelection = hiddenInput.selectionStart !== hiddenInput.selectionEnd;
+    const hasSelection = hiddenInput.selectionStart !== hiddenInput.selectionEnd || !!orderedMarkSel();
     caretBar.style.display = hasSelection ? 'none' : '';
 
     // 上下記号と漢字の間にキャレットがあるときは、その間に横線を出す
@@ -3468,17 +3608,25 @@
     }
     return out;
   }
+  // 選択の両端が上下記号の間にあるときは、選んだ記号だけを写す
+  function selectedTextWithMarks(){
+    const st = selectionStops();
+    if(!st) return '';
+    return piecesBetween(st[0], st[1]).map(pc => pc.text).join('');
+  }
   hiddenInput.addEventListener('copy', (e) => {
-    const s = hiddenInput.selectionStart, en = hiddenInput.selectionEnd;
-    if(en <= s || !e.clipboardData) return;
+    const st = selectionStops();
+    if(!st || !e.clipboardData) return;
     e.preventDefault();
-    e.clipboardData.setData('text/plain', textWithMarks(s, en));
+    e.clipboardData.setData('text/plain', selectedTextWithMarks());
   });
   hiddenInput.addEventListener('cut', (e) => {
-    const s = hiddenInput.selectionStart, en = hiddenInput.selectionEnd;
-    if(en <= s || !e.clipboardData) return;
+    const st = selectionStops();
+    if(!st || !e.clipboardData) return;
     e.preventDefault();
-    e.clipboardData.setData('text/plain', textWithMarks(s, en));
+    e.clipboardData.setData('text/plain', selectedTextWithMarks());
+    if(orderedMarkSel()){ deleteStopSelection(st[0], st[1]); return; }
+    const s = st[0].pos, en = st[1].pos;
     pushUndo(true, 'main:cut');
     const v = hiddenInput.value;
     hiddenInput.value = v.slice(0, s) + v.slice(en);
@@ -3515,6 +3663,7 @@
 
   function handleInput(){
     markCaret = null;
+    markSel = null;
     const newText = hiddenInput.value;
     if(newText !== prevText){
       const rg = changedRange(prevText, newText);
@@ -3540,10 +3689,31 @@
     if((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a'){
       e.preventDefault();
       shiftAnchor = null;
+      markSel = null; markCaret = null;
       hiddenInput.setSelectionRange(0, text.length);
       updateCaretVisual();
       return;
     }
+
+    // 上下記号の一部を含む選択があるとき:Backspace・Delete はその部分を消す
+    const ms = orderedMarkSel();
+    if(ms && (e.key === 'Backspace' || e.key === 'Delete')){ e.preventDefault(); deleteStopSelection(ms[0], ms[1]); return; }
+    // Shift+↓↑:上下記号も1字として、選択を伸ばす・縮める
+    if(e.shiftKey && !e.ctrlKey && !e.metaKey && (e.key === 'ArrowDown' || e.key === 'ArrowUp')){
+      e.preventDefault();
+      const mc0 = validMarkCaret();
+      let anchor, focus;
+      if(ms){ anchor = markSel.anchor; focus = markSel.focus; }
+      else if(s === eSel){ anchor = focus = { pos: s, mark: mc0 }; }
+      else {
+        const back = hiddenInput.selectionDirection === 'backward';
+        anchor = { pos: back ? eSel : s, mark: null }; focus = { pos: back ? s : eSel, mark: null };
+      }
+      const nf = e.key === 'ArrowDown' ? caretForward(focus.pos, focus.mark) : caretBackward(focus.pos, focus.mark);
+      if(nf) applyStopSelection(anchor, nf);
+      return;
+    }
+    if(ms && !['Shift','Control','Alt','Meta'].includes(e.key) && !(e.ctrlKey || e.metaKey)){ markSel = null; }
 
     // 上下記号と漢字の間にキャレットがあるとき
     const mc = validMarkCaret();
