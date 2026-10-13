@@ -1723,17 +1723,21 @@
   // ---------- 傍線・波線 ----------
   // 範囲 [start, end) に線を引く(type = 'straight' | 'wavy')。type が null なら、その範囲の線を消す。
   // 重なっていた線は、その範囲の分だけ置きかわる
+  // 1回ずつ引いた線は、それぞれ別の線として持つ(すぐ下に続けて別の固有名詞に引いても、つながらない)
   function setLines(start, end, type){
-    const per = new Map();
-    lineSpans.forEach(sp => { for(let i = sp.start; i < sp.end; i++) per.set(i, sp.type); });
-    for(let i = start; i < end; i++){ if(type) per.set(i, type); else per.delete(i); }
+    const per = new Map(); // 位置 → { id, type }
+    lineSpans.forEach((sp, n) => { for(let i = sp.start; i < sp.end; i++) per.set(i, { id: n, type: sp.type }); });
+    const newId = lineSpans.length;
+    for(let i = start; i < end; i++){ if(type) per.set(i, { id: newId, type }); else per.delete(i); }
     const idxs = [...per.keys()].sort((a, b) => a - b);
     const out = [];
+    let lastId = null;
     idxs.forEach(i => {
-      const t = per.get(i);
+      const v = per.get(i);
       const last = out[out.length - 1];
-      if(last && last.end === i && last.type === t) last.end = i + 1;
-      else out.push({ start: i, end: i + 1, type: t });
+      if(last && last.end === i && lastId === v.id) last.end = i + 1;
+      else out.push({ start: i, end: i + 1, type: v.type });
+      lastId = v.id;
     });
     lineSpans = out;
   }
@@ -1790,10 +1794,9 @@
   function drawSideLineRun(contentEl, run, text){
     const scale = state.fontSize / ANNO_BASE_SIZE;
     const glyphTop = (cellH - state.fontSize) / 2, glyphBottom = (cellH + state.fontSize) / 2;
-    const isFirst = run.firstIdx === run.span.start;
-    const isLast = nextCharIdx(text, run.lastIdx) >= run.span.end;
-    const top = run.firstRow * cellH + (isFirst ? glyphTop : 0);
-    const bottom = run.lastRow * cellH + (isLast ? glyphBottom : cellH);
+    // 行の終わりで次の行へ続く線も、字の上端から下端までにとどめる(マスの端まで伸ばさない)
+    const top = run.firstRow * cellH + glyphTop;
+    const bottom = run.lastRow * cellH + glyphBottom;
     const len = bottom - top;
     if(len <= 0) return;
     const amp = 2 * scale;                 // 波の振れ幅(片側)
