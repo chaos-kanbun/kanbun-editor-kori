@@ -1530,7 +1530,59 @@
   }
 
   // ---------- レイアウト計算(禁則文字の追い込みを含む) ----------
+  // ---------- 字と字の間に入る記号(句読点・括弧・ハイフン) ----------
+  // 記号は本文の中のふつうの字として持ち、配置のときだけ、となりの漢字に添えて字と字の間に描く(マスを取らない)。
+  // そのため、キャレット・選択・入力・削除・コピーは、ふつうのテキストと同じように働く。
+  //   owners: 漢字の位置 → { kami: { idx, ch } | null, shimo: [{ idx, ch }, ...] }
+  //   byIdx:  記号の位置 → { owner: 漢字の位置, field: 'kami' | 'shimo', p: 下記号の何番目か }
+  function computeAttachments(text){
+    const owners = new Map(), byIdx = new Map();
+    const ownerOf = (k) => { if(!owners.has(k)) owners.set(k, { kami: null, shimo: [] }); return owners.get(k); };
+    const attachKami = (i, ch) => {
+      const ni = i + ch.length;
+      if(ni >= text.length) return false;
+      const nch = charAtIdx(text, ni);
+      if(!isKanji(nch)) return false;
+      const o = ownerOf(ni);
+      if(o.kami) return false;
+      o.kami = { idx: i, ch };
+      byIdx.set(i, { owner: ni, field: 'kami', p: 0 });
+      return true;
+    };
+    for(let i = 0; i < text.length; ){
+      const ch = charAtIdx(text, i);
+      let done = false;
+      if((AUTO_SHIMO.has(ch) || ch === '-') && i > 0){
+        // 直前が漢字か、漢字に添えた下記号なら、その漢字の下記号にする
+        const pi = prevCharIdx(text, i);
+        let k = null;
+        if(isKanji(charAtIdx(text, pi)) && !byIdx.has(pi)) k = pi;
+        else { const at = byIdx.get(pi); if(at && at.field === 'shimo') k = at.owner; }
+        if(k !== null){
+          const o = ownerOf(k);
+          const n = o.shimo.length;
+          const ok = n === 0 || (n === 1 && SHIMO_BEFORE_BRACKET.has(o.shimo[0].ch) && CLOSE_BRACKETS.has(ch));
+          if(ok){ o.shimo.push({ idx: i, ch }); byIdx.set(i, { owner: k, field: 'shimo', p: n }); done = true; }
+        }
+      }
+      if(!done && (AUTO_KAMI.has(ch) || ch === '-')) done = attachKami(i, ch);
+      i += ch.length;
+    }
+    return { owners, byIdx };
+  }
+  // 漢字の位置について、添えている記号も含めた注釈(描画用。kami・shimo に記号の字が入る)
+  function viewAnno(idx){
+    const base = annotations.get(idx);
+    const o = layout.attach && layout.attach.owners.get(idx);
+    if(!base && !o) return undefined;
+    const v = Object.assign({}, base || {});
+    v.kami = o && o.kami ? o.kami.ch : '';
+    v.shimo = o ? o.shimo.map(x => x.ch).join('') : '';
+    return v;
+  }
+
   function computeLayout(text){
+    const attach = computeAttachments(text);
     const pages = [];
     const posOf = new Array(text.length + 1);
     let page = [], col = [], row = 0;
@@ -1551,6 +1603,12 @@
         posOf[i] = { page: curPage(), col: curCol(), y: row };
         commitColumn(i + 1);
         if(page.length >= colsPerPage) commitPage();
+        continue;
+      }
+
+      // となりの漢字に添える記号は、マスを取らない(位置は後で、添えた漢字と同じにする)
+      if(attach.byIdx.has(i)){
+        if(ch.length === 2) i++;
         continue;
       }
 
@@ -1575,8 +1633,12 @@
     commitColumn(text.length);
     if(page.length) pages.push(page);
     if(pages.length === 0) pages.push([[]]);
+    attach.byIdx.forEach((at, i) => {
+      posOf[i] = posOf[at.owner];
+      if(charAtIdx(text, i).length === 2) posOf[i + 1] = posOf[at.owner];
+    });
 
-    return { pages, posOf };
+    return { pages, posOf, attach };
   }
 
   // ---------- 1マスの中でのクリック位置 → 文字インデックス ----------
@@ -1658,10 +1720,12 @@
     if(pageIdx === null) return;
     const rect = pageRefs[pageIdx].contentEl.getBoundingClientRect();
     const idx = pointToIndex(pageIdx, (e.clientX - rect.left) / zoom, (e.clientY - rect.top) / zoom);
-    // ドラッグの端が上下記号と漢字の間なら、そこまでを選ぶ(記号を含めるか含めないかを選べる)
-    const focus = markSlotAtPoint(e.clientX, e.clientY) || { pos: idx, mark: null };
-    if(!stopValid(dragAnchor)) dragAnchor = { pos: Math.min(dragAnchor.pos || 0, hiddenInput.value.length), mark: null };
-    applyStopSelection(dragAnchor, focus);
+    // ドラッグの端が記号と漢字の間なら、そこまでを選ぶ(記号を含めるか含めないかを選べる)
+    const slot = markSlotAtPoint(e.clientX, e.clientY);
+    const focus = slot !== null ? slot : idx;
+    const start = Math.min(dragAnchor, focus), end = Math.max(dragAnchor, focus);
+    hiddenInput.setSelectionRange(start, end, focus >= dragAnchor ? 'forward' : 'backward');
+    updateCaretVisual();
   });
   document.addEventListener('mouseup', () => { dragAnchor = null; });
 
@@ -1682,12 +1746,12 @@
       const y = (e.clientY - rect.top) / zoom;
       const idx = pointToIndex(pageIdx, x, y);
       hiddenInput.focus();
-      // 上下記号と漢字の間を押したときは、その間にキャレットを置く
+      // 記号と漢字の間を押したときは、その間(本文の中のその位置)にキャレットを置く
       const slot = markSlotAtPoint(e.clientX, e.clientY);
-      const st = slot || { pos: idx, mark: null };
-      markSel = null;
-      dragAnchor = st;
-      setCaretState(st);
+      const ti = slot !== null ? slot : idx;
+      dragAnchor = ti;
+      hiddenInput.setSelectionRange(ti, ti);
+      updateCaretVisual();
     });
     pageEl.appendChild(contentEl);
 
@@ -1915,6 +1979,50 @@
     if(mark.p > 0) return { pos, mark: { idx: mark.idx, field: 'shimo', p: mark.p - 1 } };
     return beforeK(mark.idx);
   }
+  // キャレットが記号と漢字の間にあるときに字を入れる準備:キャレットより後ろにある記号を本文の字に戻し、
+  // 本文の中のキャレットを、見た目どおりの位置(記号の手前)に置く
+  let pendingMarkInsert = null; // 入力が始まったときの markCaret(入力の後で、記号の並びを見た目どおりに直す)
+  function capturePendingMark(){
+    const mc = validMarkCaret();
+    pendingMarkInsert = mc ? { idx: mc.idx, field: mc.field, p: mc.p, pos: markCaretTextPos(mc) } : null;
+  }
+  // 記号と漢字の間に字が入った後:本文の中では、字は記号より前(または後ろ)に入っているので、
+  // キャレットより後ろにあった記号を、入れた字の後ろへ本文の字として戻す(その後、字と字の間に付け直される)
+  function applyPendingMarkInsert(insStart, insEnd){
+    const pm = pendingMarkInsert;
+    pendingMarkInsert = null;
+    if(!pm || insStart !== pm.pos || insEnd <= insStart) return false;
+    let t = hiddenInput.value;
+    const len = insEnd - insStart;
+    let moved = '';
+    if(pm.field === 'kami'){
+      // 上記号と漢字の間:字は漢字の前(=上記号より前)に入っている → 上記号を、入れた字の前へ出す
+      const a = annotations.get(pm.idx + len);
+      if(!a || !a.kami) return false;
+      moved = a.kami;
+      a.kami = ''; delete a.kamiDx; delete a.kamiDy; delete a.kamiLeft;
+      shiftAnnotationsFrom(insStart, moved.length);
+      t = t.slice(0, insStart) + moved + t.slice(insStart);
+      hiddenInput.value = t; prevText = t;
+      hiddenInput.setSelectionRange(insEnd + moved.length, insEnd + moved.length);
+      autoConvertAround(insStart, insEnd + moved.length);
+    } else {
+      // 漢字と下記号の間(または2つの下記号の間):字は下記号より前に入ったことにし、残りの下記号を後ろへ出す
+      const a = annotations.get(pm.idx);
+      if(!a || !a.shimo) return false;
+      const chars = Array.from(a.shimo);
+      moved = chars.slice(pm.p).join('');
+      a.shimo = chars.slice(0, pm.p).join('');
+      if(a.shimo !== '-'){ delete a.shimoDx; delete a.shimoDy; }
+      shiftAnnotationsFrom(insEnd, moved.length);
+      t = t.slice(0, insEnd) + moved + t.slice(insEnd);
+      hiddenInput.value = t; prevText = t;
+      hiddenInput.setSelectionRange(insEnd, insEnd);
+      autoConvertAround(insStart, insEnd + moved.length);
+    }
+    return true;
+  }
+
   // キャレットが上下記号と漢字の間にあるときの Backspace:キャレットのすぐ上のものを消す
   function backspaceAtMark(mc){
     const t = hiddenInput.value;
@@ -2070,66 +2178,103 @@
     const colIdx = Math.floor((contentWidth - (clientX - rect.left) / zoom) / cellW);
     const col = page[colIdx];
     if(!col || !col.length) return null;
-    const t = hiddenInput.value;
     const elOf = new Map();
     allCellEls.forEach(c => { if(c.el.classList.contains('is-kanji')) elOf.set(c.idx, c.el); });
-    // 押した所に近いマスだけを見る(前後1マスずつ。はみ出した記号も拾えるように)
     const localY = (clientY - rect.top) / zoom;
     const row = Math.max(0, Math.min(col.length - 1, Math.floor(localY / cellH)));
+    // 押した所に近いマス(前後1マスずつ)の、記号と漢字を上から並べる。それぞれの「すぐ前の位置」を持つ
     const items = [];
     for(let r = Math.max(0, row - 1); r <= Math.min(col.length - 1, row + 1); r++){
-      const cell = col[r];
-      const idx = cell.mainIdx;
-      const ch = charAtIdx(t, idx);
-      const a = annotations.get(idx);
+      const idx = col[r].mainIdx;
+      const o = layout.attach.owners.get(idx);
       const el = elOf.get(idx);
-      const end = idx + ch.length;
-      if(!el || !a || (!a.kami && !a.shimo)) continue;
+      if(!el || !o || (!o.kami && !o.shimo.length)) continue;
       const g = markGeometry(el);
-      const glyphC = (g.glyphTop + g.glyphBottom) / 2;
-      if(a.kami && g.kami !== null) items.push({ y: g.kami, before: { pos: idx, mark: null } });
-      items.push({ y: glyphC, before: a.kami ? { pos: idx, mark: { idx, field: 'kami' } } : { pos: idx, mark: null } });
-      g.shimo.forEach((cy, p) => items.push({ y: cy, before: { pos: end, mark: { idx, field: 'shimo', p } } }));
-      if(a.shimo) items.push({ y: Infinity, before: { pos: end, mark: null }, tail: true, after: g.shimo.length ? g.shimo[g.shimo.length - 1] : g.glyphBottom });
+      if(o.kami && g.kami !== null) items.push({ y: g.kami, idx: o.kami.idx });
+      items.push({ y: (g.glyphTop + g.glyphBottom) / 2, idx });
+      o.shimo.forEach((m, p) => { if(typeof g.shimo[p] === 'number') items.push({ y: g.shimo[p], idx: m.idx }); });
+      if(o.shimo.length){
+        const last = o.shimo[o.shimo.length - 1];
+        items.push({ tail: true, after: g.shimo.length ? g.shimo[g.shimo.length - 1] : g.glyphBottom, idx: last.idx + last.ch.length, y: Infinity });
+      }
     }
     if(!items.length) return null;
     items.sort((x, y) => x.y - y.y);
     for(const it of items){
       if(it.tail){
-        // 最後の下記号より下:その下記号の中心から、次の字までの間はふつうの位置
-        if(clientY > it.after && clientY < it.after + state.fontSize * zoom) return it.before;
+        if(clientY > it.after && clientY < it.after + state.fontSize * zoom) return it.idx;
         continue;
       }
-      if(clientY < it.y){
-        // その物の中心より上を押した:その物のすぐ上の切れ目
-        return it.before.mark ? it.before : null;
-      }
+      // その物の中心より上を押した:その物のすぐ前
+      if(clientY < it.y) return it.idx;
     }
     return null;
   }
-  // 漢字のマスの中の、字の上端・下端と、上下記号それぞれの中心(画面上の y)
+  // 字と字の間に描いた記号の「字形(インク)」が、添えた漢字のマスの中心からどこにあるか。
+  // [字形の中心(漢字の中心から下を正、文字の大きさ=1 とした量), 字形の高さの半分]。
+  // 記号の枠(span)は、ブラウザが句読点・括弧の余白を詰めるため、字形の位置と一致しない。
+  // そこで、実際に描いた字形の位置を測った値を使う(描く位置は文字の大きさに比例するので、この比は一定)
+  const INK_SHIMO = { '。': [0.883, 0.097], '、': [0.876, 0.09], '，': [0.953, 0.116], '．': [0.876, 0.052], '・': [1.72, 0.071],
+    '！': [1.43, 0.296], '？': [1.43, 0.296], '：': [1.25, 0.245], '；': [0.941, 0.06],
+    '」': [1.958, 0.142], '』': [1.939, 0.135], '）': [1.939, 0.122], '］': [1.411, 0.084], '｝': [1.785, 0.084], '〉': [1.868, 0.116],
+    '》': [2.036, 0.168], '〕': [1.862, 0.11], '〗': [1.469, 0.129], '】': [2.01, 0.155], '〙': [2.0, 0.2], '〛': [2.0, 0.2] };
+  const INK_KAMI = { '「': [-0.657, 0.142], '『': [-0.664, 0.135], '（': [-0.676, 0.122], '［': [-0.5, 0.077], '｛': [-0.709, 0.09],
+    '〈': [-0.696, 0.116], '《': [-0.638, 0.174], '〔': [-0.689, 0.11], '〖': [-0.67, 0.129], '【': [-0.657, 0.155], '〘': [-0.66, 0.15], '〚': [-0.66, 0.15] };
+  // 2つ並ぶ下記号(。」 ！」 など):1つ目の字ごとの、1つ目・2つ目の位置
+  const INK_PAIR1 = { '。': [0.831, 0.097], '、': [0.825, 0.09], '，': [0.902, 0.116], '．': [0.825, 0.052], '！': [1.404, 0.296], '？': [1.417, 0.296], '：': [1.095, 0.245], '；': [0.792, 0.05] };
+  const INK_PAIR2 = { '。': [1.997, 0.142], '、': [1.997, 0.142], '，': [1.997, 0.142], '．': [1.997, 0.142], '！': [2.255, 0.142], '？': [2.255, 0.142], '：': [1.997, 0.142], '；': [1.997, 0.142] };
+  // 漢字のマスの中の、字の上端・下端と、添えた記号それぞれの字形の位置(画面上の y)
+  //   kami / shimo[] … 字形の中心、kamiInk / shimoInk[] … 字形の上端・下端
   function markGeometry(el){
     const r = el.getBoundingClientRect();
-    const fs = state.fontSize * zoom;
+    const em = state.fontSize * zoom;
     const cy = r.top + r.height / 2;
-    const out = { rect: r, glyphTop: cy - fs / 2, glyphBottom: cy + fs / 2, kami: null, shimo: [] };
+    const out = { rect: r, glyphTop: cy - em * 0.46, glyphBottom: cy + em * 0.46, kami: null, kamiInk: null, shimo: [], shimoInk: [] };
+    const fromTable = (t) => ({ c: cy + t[0] * em, top: cy + (t[0] - t[1]) * em, bottom: cy + (t[0] + t[1]) * em });
+    const fromRect = (sp) => { const b = sp.getBoundingClientRect(); const c = b.top + b.height / 2; const h = em * 0.22; return { c, top: c - h, bottom: c + h }; };
+    const sh = [];
+    let kamiSp = null;
     el.querySelectorAll('.mark-hit').forEach(sp => {
-      const b = sp.getBoundingClientRect();
-      const c = b.top + b.height / 2;
-      if(sp.dataset.markField === 'kami') out.kami = c;
-      else if(sp.dataset.markField === 'shimo') out.shimo[Number(sp.dataset.markPos || 0)] = c;
+      if(sp.dataset.markField === 'kami') kamiSp = sp;
+      else if(sp.dataset.markField === 'shimo') sh[Number(sp.dataset.markPos || 0)] = sp;
     });
-    out.shimo = out.shimo.filter(v => typeof v === 'number');
+    if(kamiSp){
+      const ch = kamiSp.textContent;
+      const ink = kamiSp.classList.contains('hyphen-mark') ? fromRect(kamiSp) : fromTable(INK_KAMI[ch] || [-0.66, 0.15]);
+      out.kami = ink.c; out.kamiInk = ink;
+    }
+    const list = sh.filter(Boolean);
+    list.forEach((sp, i) => {
+      let ink;
+      if(sp.classList.contains('hyphen-mark')) ink = fromRect(sp);
+      else if(list.length === 1) ink = fromTable(INK_SHIMO[sp.textContent] || [1.0, 0.15]);
+      else {
+        const first = list[0].textContent;
+        ink = fromTable(i === 0 ? (INK_PAIR1[first] || [0.85, 0.1]) : (INK_PAIR2[first] || [2.0, 0.14]));
+      }
+      out.shimo.push(ink.c); out.shimoInk.push(ink);
+    });
     return out;
   }
   // markCaret のときのキャレットの高さ(画面上の y)。記号と字の、ちょうど間
+  // 本文の位置 i が、記号と漢字の間(または2つの記号の間)にあたるなら、その場所を返す
+  function markCaretFromIndex(i){
+    if(!layout.attach) return null;
+    const at = layout.attach.byIdx.get(i);
+    if(at && at.field === 'shimo') return { idx: at.owner, field: 'shimo', p: at.p };
+    if(at) return null; // 上の記号の前は、ふつうの位置
+    const o = layout.attach.owners.get(i);
+    if(o && o.kami) return { idx: i, field: 'kami' };
+    return null;
+  }
   function markCaretY(mc){
     const c = allCellEls.find(x => x.idx === mc.idx && x.el.classList.contains('is-kanji'));
     if(!c) return null;
     const g = markGeometry(c.el);
-    if(mc.field === 'kami') return { rect: g.rect, y: g.kami !== null ? (g.kami + g.glyphTop) / 2 : g.glyphTop - 2 };
-    const prevY = mc.p === 0 ? g.glyphBottom : g.shimo[mc.p - 1];
-    const nextY = g.shimo[mc.p];
+    // 上の物の字形の下端と、下の物の字形の上端の、ちょうど間
+    if(mc.field === 'kami') return { rect: g.rect, y: g.kamiInk ? (g.kamiInk.bottom + g.glyphTop) / 2 : g.glyphTop - 2 };
+    const prevY = mc.p === 0 ? g.glyphBottom : (g.shimoInk[mc.p - 1] && g.shimoInk[mc.p - 1].bottom);
+    const nextY = g.shimoInk[mc.p] && g.shimoInk[mc.p].top;
     if(typeof prevY !== 'number' || typeof nextY !== 'number') return { rect: g.rect, y: g.glyphBottom + 2 };
     return { rect: g.rect, y: (prevY + nextY) / 2 };
   }
@@ -2143,26 +2288,20 @@
     span.dataset.markIdx = String(idx);
     span.dataset.markPos = (pos === null || pos === undefined) ? '0' : String(pos);
     if(title) span.title = title;
+    // この記号の、本文の中の位置
+    const own = layout.attach && layout.attach.owners.get(idx);
+    const m = own ? (field === 'kami' ? own.kami : own.shimo[(pos === null || pos === undefined) ? 0 : pos]) : null;
+    if(m) span.dataset.textIdx = String(m.idx);
     span.addEventListener('mousedown', (e) => {
       e.stopPropagation(); e.preventDefault();
-      if(e.button !== 0 || span.classList.contains('hyphen-mark')) return;
+      if(e.button !== 0 || span.classList.contains('hyphen-mark') || !m) return;
+      // 記号の上半分を押せばその記号の前、下半分なら後ろ(ふつうの字と同じ)
       const b = span.getBoundingClientRect();
-      const upper = e.clientY < b.top + b.height / 2;
-      const t = hiddenInput.value;
-      const end = idx + charAtIdx(t, idx).length;
-      const a = annotations.get(idx);
-      let st;
-      if(field === 'kami') st = upper ? { pos: idx, mark: null } : { pos: idx, mark: { idx, field: 'kami' } };
-      else {
-        const p = (pos === null || pos === undefined) ? 0 : pos;
-        const n = a && a.shimo ? Array.from(a.shimo).length : 0;
-        if(upper) st = { pos: end, mark: { idx, field: 'shimo', p } };
-        else st = (p + 1 < n) ? { pos: end, mark: { idx, field: 'shimo', p: p + 1 } } : { pos: end, mark: null };
-      }
+      const ti = e.clientY < b.top + b.height / 2 ? m.idx : m.idx + m.ch.length;
       hiddenInput.focus();
-      markSel = null;
-      dragAnchor = st;
-      setCaretState(st);
+      dragAnchor = ti;
+      hiddenInput.setSelectionRange(ti, ti);
+      updateCaretVisual();
     });
     return span;
   }
@@ -2203,26 +2342,26 @@
 
     if(isKanji(ch)){
       el.classList.add('is-kanji');
-      const anno = annotations.get(cell.mainIdx);
+      const anno = viewAnno(cell.mainIdx);
       const jkSpan = jukujikunSpans.find(sp => cell.mainIdx >= sp.start && cell.mainIdx < sp.end);
       if(anno){
         // 上下で「下記号を持つ文字」と「上記号を持つ文字」が連続する場合は、互いに少し寄せる
         let shimoExtra = 0, kamiExtra = 0;
-        if(anno.shimo){
-          const nextIdx = nextCharIdx(text, cell.mainIdx);
-          const nextAnno = annotations.get(nextIdx);
-          const p1 = layout.posOf[cell.mainIdx], p2 = layout.posOf[nextIdx];
-          if(nextAnno && nextAnno.kami && isKanji(charAtIdx(text, nextIdx)) && p1 && p2 &&
-             p1.page === p2.page && p1.col === p2.col && p2.y === p1.y + 1){
+        const own = layout.attach.owners.get(cell.mainIdx);
+        if(anno.shimo && own && own.shimo.length){
+          const lastS = own.shimo[own.shimo.length - 1];
+          const at = layout.attach.byIdx.get(lastS.idx + lastS.ch.length);
+          const nextIdx = at && at.field === 'kami' ? at.owner : null;
+          const p1 = layout.posOf[cell.mainIdx], p2 = nextIdx !== null ? layout.posOf[nextIdx] : null;
+          if(p1 && p2 && p1.page === p2.page && p1.col === p2.col && p2.y === p1.y + 1){
             shimoExtra = -2; // 上へ2px
           }
         }
-        if(anno.kami){
-          const prevIdx = prevCharIdx(text, cell.mainIdx);
-          const prevAnno = annotations.get(prevIdx);
-          const p1 = layout.posOf[prevIdx], p2 = layout.posOf[cell.mainIdx];
-          if(cell.mainIdx > 0 && prevAnno && prevAnno.shimo && isKanji(charAtIdx(text, prevIdx)) && p1 && p2 &&
-             p1.page === p2.page && p1.col === p2.col && p2.y === p1.y + 1){
+        if(anno.kami && own && own.kami && own.kami.idx > 0){
+          const at = layout.attach.byIdx.get(prevCharIdx(text, own.kami.idx));
+          const prevIdx = at && at.field === 'shimo' ? at.owner : null;
+          const p1 = prevIdx !== null ? layout.posOf[prevIdx] : null, p2 = layout.posOf[cell.mainIdx];
+          if(p1 && p2 && p1.page === p2.page && p1.col === p2.col && p2.y === p1.y + 1){
             kamiExtra = 2; // 下へ2px
           }
         }
@@ -2409,39 +2548,29 @@
   function updateSelectionVisual(){
     const s = Math.min(hiddenInput.selectionStart, hiddenInput.selectionEnd);
     const e = Math.max(hiddenInput.selectionStart, hiddenInput.selectionEnd);
-    // 上下記号も1字として、選ばれているかを決める
-    const stops = selectionStops();
-    const pieces = stops ? piecesBetween(stops[0], stops[1]) : [];
-    const selKami = new Set(), selShimo = new Map(), selChar = new Set();
-    pieces.forEach(pc => {
-      if(pc.type === 'kami') selKami.add(pc.idx);
-      else if(pc.type === 'char') selChar.add(pc.idx);
-      else { if(!selShimo.has(pc.idx)) selShimo.set(pc.idx, new Set()); selShimo.get(pc.idx).add(pc.p); }
-    });
+    const inSel = (i) => i >= s && i < e;
     allCellEls.forEach(({ el, idx }) => {
-      const on = idx >= s && idx < e;
+      const on = inSel(idx);
       el.classList.toggle('cell-selected', on);
-      // 字は選んでいても、その字の上記号・下記号を選んでいないときは、マスの色を字の所までにとどめる
-      const a = on ? annotations.get(idx) : null;
-      el.classList.toggle('sel-trim-top', !!(a && a.kami && !selKami.has(idx)));
-      el.classList.toggle('sel-trim-bottom', !!(a && a.shimo && (!selShimo.has(idx) || selShimo.get(idx).size < Array.from(a.shimo).length)));
+      // 字は選んでいても、添えている記号を選んでいないときは、マスの色を字の所までにとどめる
+      const o = on && layout.attach ? layout.attach.owners.get(idx) : null;
+      el.classList.toggle('sel-trim-top', !!(o && o.kami && !inSel(o.kami.idx)));
+      el.classList.toggle('sel-trim-bottom', !!(o && o.shimo.some(m => !inSel(m.idx))));
     });
     workspace.querySelectorAll('.mark-hit').forEach(sp => {
-      const idx = Number(sp.dataset.markIdx);
-      const f = sp.dataset.markField;
-      const on = f === 'kami' ? selKami.has(idx) : (selShimo.has(idx) && selShimo.get(idx).has(Number(sp.dataset.markPos || 0)));
-      sp.classList.toggle('mark-selected', on);
+      const ti = sp.dataset.textIdx;
+      sp.classList.toggle('mark-selected', ti !== undefined && inSel(Number(ti)));
     });
   }
 
   function updateCaretVisual(){
     updateSelectionVisual();
-    const hasSelection = hiddenInput.selectionStart !== hiddenInput.selectionEnd || !!orderedMarkSel();
+    const hasSelection = hiddenInput.selectionStart !== hiddenInput.selectionEnd;
     caretBar.style.display = hasSelection ? 'none' : '';
 
-    // 上下記号と漢字の間にキャレットがあるときは、その間に横線を出す
-    const mc = validMarkCaret();
-    if(mc && !hasSelection){
+    // 記号と漢字の間にキャレットがあるときは、その間に横線を出す
+    const mc = hasSelection ? null : markCaretFromIndex(hiddenInput.selectionEnd);
+    if(mc){
       const m = markCaretY(mc);
       if(m){
         caretBar.style.left = m.rect.left + 'px';
@@ -2472,17 +2601,28 @@
       const t = hiddenInput.value, fs = state.fontSize * zoom;
       const cellElOf = (i) => { const c = allCellEls.find(x => x.idx === i && x.el.classList.contains('is-kanji')); return c ? c.el : null; };
       let lo = null, hi = null;
-      if(s > 0){
-        const pi = prevCharIdx(t, s), pp = layout.posOf[pi], pa = annotations.get(pi);
-        if(pa && pa.shimo && pp && pp.page === pos.page && pp.col === pos.col){
-          const el = cellElOf(pi);
-          if(el){ const g = markGeometry(el); if(g.shimo.length) lo = g.shimo[g.shimo.length - 1] + fs * 0.28; }
+      if(s > 0 && layout.attach){
+        const at = layout.attach.byIdx.get(prevCharIdx(t, s));
+        if(at && at.field === 'shimo'){
+          const pp = layout.posOf[at.owner];
+          const el = cellElOf(at.owner);
+          if(el && pp && pp.page === pos.page && pp.col === pos.col){ const g = markGeometry(el); if(g.shimoInk.length){
+            const lastBottom = g.shimoInk[g.shimoInk.length - 1].bottom;
+            const nextGlyphTop = top + (cellH * zoom) / 2 - fs * 0.46;
+            // 記号が次の字の横まで下がっているときは、次の字の上端に置く
+            if(lastBottom > top - 1) lo = lastBottom <= nextGlyphTop ? (lastBottom + nextGlyphTop) / 2 : nextGlyphTop - 1;
+          } }
         }
       }
-      const na = annotations.get(s);
-      if(na && na.kami && s < t.length){
-        const el = cellElOf(s);
-        if(el){ const g = markGeometry(el); if(g.kami !== null) hi = g.kami - fs * 0.28; }
+      if(s < t.length && layout.attach){
+        const at = layout.attach.byIdx.get(s);
+        if(at && at.field === 'kami'){
+          const el = cellElOf(at.owner);
+          if(el){ const g = markGeometry(el); if(g.kamiInk){
+            const prevGlyphBottom = top - (cellH * zoom) / 2 + fs * 0.46;
+            if(g.kamiInk.top < top + 1) hi = (g.kamiInk.top + Math.min(prevGlyphBottom, g.kamiInk.top)) / 2;
+          } }
+        }
       }
       if(lo !== null && hi !== null) top = lo <= hi ? Math.min(Math.max(top, lo), hi) : (lo + hi) / 2;
       else if(lo !== null) top = Math.max(top, lo);
@@ -2543,10 +2683,11 @@
     panel.appendChild(title);
 
     const inputs = {};
-    const current = () => annotations.get(idx);
+    const current = () => getAnno(idx);
     const apply = (dx, dy, boundary) => {
       const a = current();
-      if(!a || a[field] !== '-') return;
+      const v = viewAnno(idx);
+      if(!a || !v || v[field] !== '-') return;
       pushUndo(!!boundary, 'hyphen:' + idx);
       a[field + 'Dx'] = dx; a[field + 'Dy'] = dy;
       if(field === 'kami') delete a.kamiLeft;
@@ -3392,6 +3533,29 @@
     });
   }
 
+  // 以前の文書では、句読点・括弧を漢字の注釈(kami・shimo)として持っていた。今は本文の字として持つので、本文に戻す
+  function migrateMarksToText(){
+    let t = hiddenInput.value;
+    const keys = [...annotations.keys()].sort((x, y) => y - x);
+    for(const i of keys){
+      const a = annotations.get(i);
+      if(!a || (!a.kami && !a.shimo)) continue;
+      const ch = charAtIdx(t, i);
+      if(a.shimo){
+        const sh = a.shimo; a.shimo = '';
+        shiftAnnotationsFrom(i + ch.length, sh.length);
+        t = t.slice(0, i + ch.length) + sh + t.slice(i + ch.length);
+      }
+      if(a.kami){
+        const k = a.kami; a.kami = '';
+        shiftAnnotationsFrom(i, k.length);
+        t = t.slice(0, i) + k + t.slice(i);
+      }
+    }
+    hiddenInput.value = t;
+    prevText = t;
+  }
+
   // 保存した文書の中身を、エディタに読み込む
   function loadDocumentText(jsonText, fileName, handle){
     let data;
@@ -3424,6 +3588,7 @@
       }
       prevText = hiddenInput.value;
       migrateHyphens();
+      migrateMarksToText();
       recomputeGeometry();
       syncSlidersFromState();
       render();
@@ -3661,10 +3826,9 @@
   });
   hiddenInput.addEventListener('compositionend', () => {
     composing = false;
-    // 日本語入力で確定した文字も、すぐに上記号・下記号にする
     const newText = hiddenInput.value;
     if(newText !== prevText){ remapAnnotationsOnEdit(prevText, newText); prevText = newText; }
-    if(autoConvertAround(Math.min(compositionStartPos, hiddenInput.selectionStart), hiddenInput.selectionEnd)) render();
+    render();
   });
 
   hiddenInput.addEventListener('beforeinput', (e) => {
@@ -3689,31 +3853,8 @@
     }
     return out;
   }
-  // 選択の両端が上下記号の間にあるときは、選んだ記号だけを写す
-  function selectedTextWithMarks(){
-    const st = selectionStops();
-    if(!st) return '';
-    return piecesBetween(st[0], st[1]).map(pc => pc.text).join('');
-  }
-  hiddenInput.addEventListener('copy', (e) => {
-    const st = selectionStops();
-    if(!st || !e.clipboardData) return;
-    e.preventDefault();
-    e.clipboardData.setData('text/plain', selectedTextWithMarks());
-  });
-  hiddenInput.addEventListener('cut', (e) => {
-    const st = selectionStops();
-    if(!st || !e.clipboardData) return;
-    e.preventDefault();
-    e.clipboardData.setData('text/plain', selectedTextWithMarks());
-    if(orderedMarkSel()){ deleteStopSelection(st[0], st[1]); return; }
-    const s = st[0].pos, en = st[1].pos;
-    pushUndo(true, 'main:cut');
-    const v = hiddenInput.value;
-    hiddenInput.value = v.slice(0, s) + v.slice(en);
-    hiddenInput.setSelectionRange(s, s);
-    handleInput();
-  });
+  // コピー・切り取りは、ふつうのテキストと同じ(記号も本文の字なので、そのまま写る)
+
 
   // 入力・貼り付けで変わった範囲 [start, end)(新しい本文での位置)を求める
   function changedRange(oldText, newText){
@@ -3747,10 +3888,8 @@
     markSel = null;
     const newText = hiddenInput.value;
     if(newText !== prevText){
-      const rg = changedRange(prevText, newText);
       remapAnnotationsOnEdit(prevText, newText);
       prevText = newText;
-      if(!composing) autoConvertAround(rg.start, rg.end);
     }
     render();
   }
@@ -3776,44 +3915,7 @@
       return;
     }
 
-    // 上下記号の一部を含む選択があるとき:Backspace・Delete はその部分を消す
-    const ms = orderedMarkSel();
-    if(ms && (e.key === 'Backspace' || e.key === 'Delete')){ e.preventDefault(); deleteStopSelection(ms[0], ms[1]); return; }
-    // Shift+↓↑:上下記号も1字として、選択を伸ばす・縮める
-    if(e.shiftKey && !e.ctrlKey && !e.metaKey && (e.key === 'ArrowDown' || e.key === 'ArrowUp')){
-      e.preventDefault();
-      const mc0 = validMarkCaret();
-      let anchor, focus;
-      if(ms){ anchor = markSel.anchor; focus = markSel.focus; }
-      else if(s === eSel){ anchor = focus = { pos: s, mark: mc0 }; }
-      else {
-        const back = hiddenInput.selectionDirection === 'backward';
-        anchor = { pos: back ? eSel : s, mark: null }; focus = { pos: back ? s : eSel, mark: null };
-      }
-      const nf = e.key === 'ArrowDown' ? caretForward(focus.pos, focus.mark) : caretBackward(focus.pos, focus.mark);
-      if(nf) applyStopSelection(anchor, nf);
-      return;
-    }
-    if(ms && !['Shift','Control','Alt','Meta'].includes(e.key) && !(e.ctrlKey || e.metaKey)){ markSel = null; }
 
-    // 上下記号と漢字の間にキャレットがあるとき
-    const mc = validMarkCaret();
-    if(mc && e.key === 'Backspace'){ e.preventDefault(); backspaceAtMark(mc); return; }
-    if(mc && !e.shiftKey && (e.key === 'ArrowDown' || e.key === 'ArrowUp')){
-      e.preventDefault();
-      shiftAnchor = null;
-      const st = e.key === 'ArrowDown' ? caretForward(s, mc) : caretBackward(s, mc);
-      if(st) setCaretState(st);
-      return;
-    }
-    if(mc && !['Shift','Control','Alt','Meta'].includes(e.key)){ markCaret = null; updateCaretVisual(); }
-
-    if(e.key === 'Backspace' && s === eSel && s > 0){
-      if(handleSpecialDelete(prevCharIdx(text, s))){ e.preventDefault(); return; }
-    }
-    if(e.key === 'Delete' && s === eSel && s < text.length){
-      if(handleSpecialDelete(s)){ e.preventDefault(); return; }
-    }
 
     const isArrow = e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'ArrowLeft' || e.key === 'ArrowRight';
     if(isArrow){
@@ -3833,12 +3935,6 @@
         }
       }
 
-      // 上下の移動(選択なし)では、上下記号と漢字の間にも止まる
-      if(!e.shiftKey && s === eSel && (e.key === 'ArrowDown' || e.key === 'ArrowUp')){
-        const st = e.key === 'ArrowDown' ? caretForward(s, null) : caretBackward(s, null);
-        if(st) setCaretState(st);
-        return;
-      }
       let target = null;
       if(e.key === 'ArrowDown'){ target = nextCharIdx(text, movingPos); }
       else if(e.key === 'ArrowUp'){ target = prevCharIdx(text, movingPos); }
