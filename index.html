@@ -437,6 +437,11 @@
 
   /* 傍線・波線(字の左側) */
   .side-line{ position: absolute; pointer-events: none; overflow: visible; color: var(--ink); }
+  .bs-target{
+    position: fixed; pointer-events: none; z-index: 3;
+    background: rgba(0, 23, 193, .12); border-radius: 3px;
+  }
+  .bs-target[hidden]{ display: none; }
   .caret-bar{
     position: fixed;
     height: 2px;
@@ -693,7 +698,7 @@
     @page{ size: 297mm 210mm; margin: 0; }
     body{ background:#fff !important; }
     .toolbar, .sidebar, .caret-bar, .hidden-input,
-    .anno-panel, .kunten-picker, .context-menu, .ids-window, .composer-window, .help-window, .site-footer, .file-gutter{ display:none !important; }
+    .anno-panel, .kunten-picker, .context-menu, .ids-window, .composer-window, .help-window, .site-footer, .file-gutter, .bs-target{ display:none !important; }
     html, body{ height:auto !important; overflow:visible !important; display:block !important; }
     .app-body, .main-col, .workspace-area{ display:block !important; }
     .workspace-scroll{ overflow:visible !important; }
@@ -1404,6 +1409,11 @@
   const caretBar = document.createElement('div');
   caretBar.className = 'caret-bar';
   document.body.appendChild(caretBar);
+  // 記号の近くにキャレットがあるとき、Backspace で消える字(キャレットのすぐ上の字)に薄い青を重ねる
+  const bsMarkEl = document.createElement('div');
+  bsMarkEl.className = 'bs-target';
+  bsMarkEl.hidden = true;
+  document.body.appendChild(bsMarkEl);
 
   let layout = { pages: [[[]]], posOf: [{ page:0, col:0, y:0 }] };
   const pageRefs = [];
@@ -1644,9 +1654,18 @@
   // ---------- 1マスの中でのクリック位置 → 文字インデックス ----------
   // マス全体(字間込みのピッチ)をそのマスに入っている文字数で均等分割し、
   // 各文字の担当範囲の「上半分→その文字の前」「下半分→その文字の後ろ」で判定する。
+  // 漢字に添えた記号があるときは、マスの前は「上の記号の前」、マスの後ろは「下の記号の後ろ」にする
+  function cellStartIdx(cell){
+    const o = layout.attach && layout.attach.owners.get(cell.mainIdx);
+    return o && o.kami ? o.kami.idx : cell.mainIdx;
+  }
+  function cellEndIdx(cell){
+    const o = layout.attach && layout.attach.owners.get(cell.mainIdx);
+    if(o && o.shimo.length){ const l = o.shimo[o.shimo.length - 1]; return l.idx + l.ch.length; }
+    return cell.extra.length ? cell.extra[cell.extra.length - 1] + 1 : cell.mainIdx + (cell.len || 1);
+  }
   function caretIndexForCell(cell, fraction){
-    const carets = [cell.mainIdx, ...cell.extra,
-      (cell.extra.length ? cell.extra[cell.extra.length - 1] + 1 : cell.mainIdx + (cell.len || 1))];
+    const carets = [cellStartIdx(cell), ...cell.extra, cellEndIdx(cell)];
     const n = carets.length - 1;
     const regionSize = 1 / n;
     let r = Math.floor(fraction / regionSize);
@@ -1697,10 +1716,9 @@
     const col = (layout.pages[targetPage] && layout.pages[targetPage][targetCol]) || [];
     if(col.length === 0) return typeof col.startIdx === 'number' ? col.startIdx : s; // 空の行は、その行の初め
     if(row >= col.length){
-      const last = col[col.length - 1];
-      return last.mainIdx + (last.len || 1); // 移動先の行が短いときは、その行の終わり
+      return cellEndIdx(col[col.length - 1]); // 移動先の行が短いときは、その行の終わり
     }
-    return col[row].mainIdx;
+    return cellStartIdx(col[row]);
   }
 
   // ---------- ドラッグ選択 ----------
@@ -2294,10 +2312,18 @@
     if(m) span.dataset.textIdx = String(m.idx);
     span.addEventListener('mousedown', (e) => {
       e.stopPropagation(); e.preventDefault();
-      if(e.button !== 0 || span.classList.contains('hyphen-mark') || !m) return;
-      // 記号の上半分を押せばその記号の前、下半分なら後ろ(ふつうの字と同じ)
+      span._panelClick = false;
+      if(e.button !== 0 || !m) return;
       const b = span.getBoundingClientRect();
-      const ti = e.clientY < b.top + b.height / 2 ? m.idx : m.idx + m.ch.length;
+      const em = state.fontSize * zoom;
+      if(span.classList.contains('hyphen-mark')){
+        // ハイフンは、線そのものを押したときだけ位置のパネルを出す。少し外れた所(すぐ前・すぐ後ろ)はキャレットを置く
+        const c = b.top + b.height / 2;
+        if(Math.abs(e.clientY - c) <= em * 0.4){ span._panelClick = true; return; }
+      }
+      // 記号の字形の上半分を押せばその記号の前、下半分なら後ろ(ふつうの字と同じ)
+      const slot = markSlotAtPoint(e.clientX, e.clientY);
+      const ti = slot !== null ? slot : (e.clientY < b.top + b.height / 2 ? m.idx : m.idx + m.ch.length);
       hiddenInput.focus();
       dragAnchor = ti;
       hiddenInput.setSelectionRange(ti, ti);
@@ -2381,7 +2407,7 @@
           makeMarkInteractive(sp, markIdx, where, null, '押すと、このハイフンの位置を変えられます');
           sp.addEventListener('click', (e) => {
             e.stopPropagation(); // 押した直後にパネルが閉じないように
-            openHyphenPanel(markIdx, sp.getBoundingClientRect(), where);
+            if(sp._panelClick) openHyphenPanel(markIdx, sp.getBoundingClientRect(), where);
           });
         };
         if(anno.kami === '-'){
@@ -2563,9 +2589,39 @@
     });
   }
 
+  // キャレットのすぐ上の字が、漢字に添えた記号か、記号と漢字の間にキャレットがあるときに、
+  // Backspace で消える字(キャレットのすぐ上の字)の位置に薄い青を重ねる
+  function updateBackspaceTarget(hasSelection){
+    bsMarkEl.hidden = true;
+    if(hasSelection || !layout.attach) return;
+    const t = hiddenInput.value;
+    const i = hiddenInput.selectionEnd;
+    if(i <= 0) return;
+    const pi = prevCharIdx(t, i);
+    const at = layout.attach.byIdx.get(pi);
+    if(!at && !markCaretFromIndex(i)) return;
+    const ownerIdx = at ? at.owner : pi;
+    const c = allCellEls.find(x => x.idx === ownerIdx && x.el.classList.contains('is-kanji'));
+    if(!c) return;
+    const g = markGeometry(c.el);
+    const em = state.fontSize * zoom;
+    let top, bottom;
+    if(!at){ top = g.glyphTop; bottom = g.glyphBottom; }
+    else if(at.field === 'kami'){ if(!g.kamiInk) return; top = g.kamiInk.top; bottom = g.kamiInk.bottom; }
+    else { const ink = g.shimoInk[at.p]; if(!ink) return; top = ink.top; bottom = ink.bottom; }
+    const pad = Math.max(2, em * 0.06);
+    const w = Math.min(g.rect.width, em * 1.3);
+    bsMarkEl.style.left = (g.rect.left + (g.rect.width - w) / 2) + 'px';
+    bsMarkEl.style.width = w + 'px';
+    bsMarkEl.style.top = (top - pad) + 'px';
+    bsMarkEl.style.height = Math.max(4, bottom - top + pad * 2) + 'px';
+    bsMarkEl.hidden = false;
+  }
+
   function updateCaretVisual(){
     updateSelectionVisual();
     const hasSelection = hiddenInput.selectionStart !== hiddenInput.selectionEnd;
+    updateBackspaceTarget(hasSelection);
     caretBar.style.display = hasSelection ? 'none' : '';
 
     // 記号と漢字の間にキャレットがあるときは、その間に横線を出す
