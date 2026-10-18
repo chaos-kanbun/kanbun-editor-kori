@@ -2599,8 +2599,7 @@
     if(i <= 0) return;
     const pi = prevCharIdx(t, i);
     const at = layout.attach.byIdx.get(pi);
-    // 記号が絡まないときは、キャレットのすぐ上の漢字(全角の１〜５で注釈を入れる対象)を照らす
-    if(!at && !isKanji(charAtIdx(t, pi))) return;
+    if(!at && !markCaretFromIndex(i)) return;
     const ownerIdx = at ? at.owner : pi;
     const c = allCellEls.find(x => x.idx === ownerIdx && x.el.classList.contains('is-kanji'));
     if(!c) return;
@@ -3896,16 +3895,13 @@
   let prevText = hiddenInput.value;
 
   let compositionStartPos = 0;
-  let compositionBaseText = '';
   hiddenInput.addEventListener('compositionstart', () => {
     composing = true;
     compositionStartPos = hiddenInput.selectionStart;
-    compositionBaseText = hiddenInput.value;
     pushUndo(true, 'main:composition');
   });
   hiddenInput.addEventListener('compositionend', () => {
     composing = false;
-    if(tryAnnoDigit(compositionBaseText, hiddenInput.value)) return;
     const newText = hiddenInput.value;
     if(newText !== prevText){ remapAnnotationsOnEdit(prevText, newText); prevText = newText; }
     render();
@@ -3963,41 +3959,9 @@
     return false;
   }
 
-  // 全角の「１」〜「５」を打つと、キャレットのすぐ上の漢字の注釈を入れる(字は本文に入れない)
-  //   １ 振り仮名・２ 送り仮名・３ 訓点・４ 左振り仮名・５ 左送り仮名
-  const ANNO_DIGITS = '１２３４５';
-  function tryAnnoDigit(baseText, newText){
-    if(newText.length !== baseText.length + 1) return false;
-    const rg = changedRange(baseText, newText);
-    if(rg.end - rg.start !== 1) return false;
-    const d = ANNO_DIGITS.indexOf(newText[rg.start]);
-    if(d < 0 || rg.start === 0) return false;
-    // キャレットのすぐ上の漢字(下に添えた記号があれば、その記号を添えた漢字)
-    let k = prevCharIdx(baseText, rg.start);
-    const at = layout.attach && layout.attach.byIdx.get(k);
-    if(at && at.field === 'shimo') k = at.owner;
-    if(!isKanji(charAtIdx(baseText, k))) return false;
-    // 字は入れずに元へ戻し、その漢字の注釈の欄を開く
-    hiddenInput.value = baseText;
-    prevText = baseText;
-    hiddenInput.setSelectionRange(rg.start, rg.start);
-    if(undoStack.length && undoStack[undoStack.length - 1].text === baseText) undoStack.pop();
-    render();
-    const c = allCellEls.find(x => x.idx === k && x.el.classList.contains('is-kanji'));
-    if(!c) return true;
-    openAnnotationPanel(k, c.el.getBoundingClientRect());
-    if(annoPanelEl){
-      const inputs = annoPanelEl.querySelectorAll('input.anno-input');
-      const target = inputs[d];
-      if(target && !target.disabled){ target.focus(); try{ target.select(); } catch(err){ /* noop */ } }
-    }
-    return true;
-  }
-
   function handleInput(){
     markCaret = null;
     markSel = null;
-    if(!composing && tryAnnoDigit(prevText, hiddenInput.value)) return;
     const newText = hiddenInput.value;
     if(newText !== prevText){
       remapAnnotationsOnEdit(prevText, newText);
