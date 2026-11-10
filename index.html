@@ -437,11 +437,29 @@
 
   /* 傍線・波線(字の左側) */
   .side-line{ position: absolute; pointer-events: none; overflow: visible; color: var(--ink); }
-  .bs-target{
-    position: fixed; pointer-events: none; z-index: 3;
-    background: rgba(0, 23, 193, .12); border-radius: 3px;
+  /* キャレットのある漢字の脇に出る、注釈パネルを開く小さな「＋」 */
+  .panel-badge{
+    position: fixed; z-index: 6; box-sizing: border-box;
+    display: none; align-items: center; justify-content: center;
+    border: 1px solid var(--dads-primary); border-radius: 50%;
+    background: #fff; color: var(--dads-primary);
+    font: 700 11px/1 'Noto Sans JP', sans-serif;
+    opacity: .5; cursor: pointer; user-select: none;
+    transition: opacity .15s ease-out;
   }
-  .bs-target[hidden]{ display: none; }
+  .panel-badge:hover{ opacity: 1; }
+  /* 上記号・下記号を一時的に字として分けて見せるとき、その漢字と記号のまとまりを囲む四角 */
+  .group-box{
+    position: absolute; pointer-events: none; box-sizing: border-box; z-index: 2;
+    border: 1.5px solid var(--dads-primary); border-radius: 3px;
+    background: rgba(0, 23, 193, .05);
+    animation: group-box-in .18s ease-out;
+  }
+  @keyframes group-box-in{ from{ opacity: 0; } to{ opacity: 1; } }
+  /* 分けて見せている字は、少しだけ小さくして、ふだんの字との違いが分かるようにする */
+  .cell.in-group{ font-size: calc(var(--font-size) * 0.84); }
+  .cell.in-group .anno{ font-size: calc(var(--font-size) * var(--anno-scale, 0.42)); } /* 振り仮名・送り仮名などは、小さくしない */
+  .cell.in-group .anno.anno-normal-size{ font-size: var(--font-size); }
   .caret-bar{
     position: fixed;
     height: 2px;
@@ -698,7 +716,7 @@
     @page{ size: 297mm 210mm; margin: 0; }
     body{ background:#fff !important; }
     .toolbar, .sidebar, .caret-bar, .hidden-input,
-    .anno-panel, .kunten-picker, .context-menu, .ids-window, .composer-window, .help-window, .site-footer, .file-gutter, .bs-target{ display:none !important; }
+    .anno-panel, .kunten-picker, .context-menu, .ids-window, .composer-window, .help-window, .site-footer, .file-gutter, .group-box, .panel-badge{ display:none !important; }
     html, body{ height:auto !important; overflow:visible !important; display:block !important; }
     .app-body, .main-col, .workspace-area{ display:block !important; }
     .workspace-scroll{ overflow:visible !important; }
@@ -821,6 +839,25 @@
         <div class="control">
           <div class="row"><label style="flex:1" for="ctl-jukujikungap">熟字訓ルビの字間</label></div>
           <input type="number" id="ctl-jukujikungap" step="1" value="0" class="num-input">
+        </div>
+        </div>
+      </details>
+
+      <details class="side-section">
+        <summary>振り仮名・送り仮名の改行</summary>
+        <div class="side-body">
+        <p class="side-note">読みの文字数が多いとき、どこで2列に分けるかを決めます。</p>
+        <div class="control">
+          <div class="row"><label style="flex:1" for="ctl-furiokurijoin">振り仮名と送り仮名を続けて並べる合計字数(これを超えると、2列に並べる)</label></div>
+          <input type="number" id="ctl-furiokurijoin" step="1" min="1" value="5" class="num-input">
+        </div>
+        <div class="control">
+          <div class="row"><label style="flex:1" for="ctl-okurisplit">送り仮名だけのとき、2列に分ける字数(これを超えると、2列に分ける)</label></div>
+          <input type="number" id="ctl-okurisplit" step="1" min="1" value="4" class="num-input">
+        </div>
+        <div class="control">
+          <div class="row"><label style="flex:1" for="ctl-okurihead">2列に分けたとき、1列目に入れる字数</label></div>
+          <input type="number" id="ctl-okurihead" step="1" min="1" value="3" class="num-input">
         </div>
         </div>
       </details>
@@ -979,7 +1016,7 @@
     'ァ','ィ','ゥ','ェ','ォ','ッ','ャ','ュ','ョ','ヮ'
   ]);
 
-  const state = { fontSize:19, lineSpacing:35, charSpacing:30, margin:75, annoScalePercent:45, kanjiWeight:650, annoWeight:900, jukujikunCharSpacing:0, pageNumberFormat:'n-of-m' };
+  const state = { fontSize:19, lineSpacing:35, charSpacing:30, margin:75, annoScalePercent:45, kanjiWeight:650, annoWeight:900, jukujikunCharSpacing:0, furiOkuriJoinMax:5, okuriSplitOver:4, okuriSplitHead:3, pageNumberFormat:'n-of-m' };
   let cellW, cellH, rowsPerColumn, colsPerPage, contentWidth, contentHeight;
 
   // 漢字判定(漢文注釈の対象)
@@ -1409,11 +1446,6 @@
   const caretBar = document.createElement('div');
   caretBar.className = 'caret-bar';
   document.body.appendChild(caretBar);
-  // 記号の近くにキャレットがあるとき、Backspace で消える字(キャレットのすぐ上の字)に薄い青を重ねる
-  const bsMarkEl = document.createElement('div');
-  bsMarkEl.className = 'bs-target';
-  bsMarkEl.hidden = true;
-  document.body.appendChild(bsMarkEl);
 
   let layout = { pages: [[[]]], posOf: [{ page:0, col:0, y:0 }] };
   const pageRefs = [];
@@ -1581,6 +1613,49 @@
     return { owners, byIdx };
   }
   // 漢字の位置について、添えている記号も含めた注釈(描画用。kami・shimo に記号の字が入る)
+  // ---------- 上記号・下記号の一時的な分離表示 ----------
+  // キャレットが、上記号・下記号の付いた漢字(上記号+漢字+下記号のまとまり)のどこかに触れているとき、
+  // また、選択の両端がそこに触れているときは、そのまとまりだけ、記号を普通の字として1字ずつ並べて見せ、四角で囲む。
+  // 本文のデータは変わらない(見せ方だけを一時的に変える)
+  let printingNow = false;      // 印刷中は分けずに、ふだんの形で出す
+  let animateNext = false;      // 分けて見せるまとまりが変わった組み直しのとき、字がすべるように動いて見えるようにする
+  let groupRanges = [];         // 今、分けて見せているまとまりの本文の範囲 [始め, 終わり)
+  let dragSticky = new Set();   // ドラッグで選んでいる間は、いちど分けたまとまりを、ドラッグが終わるまで保つ(画面が揺れないように)
+  function groupRange(o, ownerIdx, text){
+    const start = o.kami ? o.kami.idx : ownerIdx;
+    const last = o.shimo.length ? o.shimo[o.shimo.length - 1] : null;
+    const end = last ? last.idx + last.ch.length : ownerIdx + charAtIdx(text, ownerIdx).length;
+    return [start, end];
+  }
+  function computeDetachSet(attach, text){
+    const set = new Set();
+    if(printingNow || !attach) return set;
+    const ss = hiddenInput.selectionStart, se = hiddenInput.selectionEnd;
+    attach.owners.forEach((o, k) => {
+      if(!o.kami && !o.shimo.length) return;
+      const [gs, ge] = groupRange(o, k, text);
+      if((gs <= ss && ss <= ge) || (gs <= se && se <= ge)) set.add(k);
+    });
+    if(dragAnchor !== null){
+      set.forEach(k => dragSticky.add(k));
+      dragSticky.forEach(k => { if(attach.owners.has(k)) set.add(k); });
+    }
+    return set;
+  }
+  function detachKeyOf(set){ return [...set].sort((a, b) => a - b).join(','); }
+  function applyDetach(attach, set){
+    if(!set.size) return attach;
+    const owners = new Map(attach.owners), byIdx = new Map(attach.byIdx);
+    set.forEach(k => {
+      const o = owners.get(k);
+      if(!o) return;
+      owners.delete(k);
+      if(o.kami) byIdx.delete(o.kami.idx);
+      o.shimo.forEach(m => byIdx.delete(m.idx));
+    });
+    return { owners, byIdx };
+  }
+
   function viewAnno(idx){
     const base = annotations.get(idx);
     const o = layout.attach && layout.attach.owners.get(idx);
@@ -1591,8 +1666,9 @@
     return v;
   }
 
-  function computeLayout(text){
-    const attach = computeAttachments(text);
+  function computeLayout(text, attachOverride){
+    const attach = attachOverride || computeAttachments(text);
+    const wrapEnds = new Map(); // 列の下端で折り返した所:次の列の初めの位置 → 前の列の「一番下の字の下」の位置
     const pages = [];
     const posOf = new Array(text.length + 1);
     let page = [], col = [], row = 0;
@@ -1623,6 +1699,7 @@
       }
 
       if(row >= rowsPerColumn){
+        { const ow = attach.owners.get(i); wrapEnds.set(ow && ow.kami ? ow.kami.idx : i, { page: curPage(), col: curCol(), y: row }); }
         commitColumn(i);
         if(page.length >= colsPerPage) commitPage();
       }
@@ -1648,7 +1725,7 @@
       if(charAtIdx(text, i).length === 2) posOf[i + 1] = posOf[at.owner];
     });
 
-    return { pages, posOf, attach };
+    return { pages, posOf, attach, wrapEnds };
   }
 
   // ---------- 1マスの中でのクリック位置 → 文字インデックス ----------
@@ -1695,8 +1772,10 @@
   }
 
   // ---------- 矢印キーでの移動(縦書きの読み順に合わせる) ----------
+  let moveBottom = false; // moveByColumn が、移動先の列の「一番下の字の下」に着いたか
   function moveByColumn(s, deltaCol){
-    const pos = layout.posOf[s];
+    moveBottom = false;
+    const pos = caretPosAt(s, false);
     if(!pos) return s;
     const row = Math.round(pos.y);
     let targetPage = pos.page;
@@ -1716,7 +1795,10 @@
     const col = (layout.pages[targetPage] && layout.pages[targetPage][targetCol]) || [];
     if(col.length === 0) return typeof col.startIdx === 'number' ? col.startIdx : s; // 空の行は、その行の初め
     if(row >= col.length){
-      return cellEndIdx(col[col.length - 1]); // 移動先の行が短いときは、その行の終わり
+      const endIdx = cellEndIdx(col[col.length - 1]); // 移動先の行が短いときは、その行の終わり
+      const w = layout.wrapEnds && layout.wrapEnds.get(endIdx);
+      if(w && w.page === targetPage && w.col === targetCol) moveBottom = true;
+      return endIdx;
     }
     return cellStartIdx(col[row]);
   }
@@ -1732,20 +1814,33 @@
     return clientY < first.top ? 0 : pageRefs.length - 1;
   }
 
+  let dragOrigin = null, dragMoved = false;
+  let lastKanjiDown = null; // 最後に押した漢字(ダブルクリックでパネルを開く対象)
   document.addEventListener('mousemove', (e) => {
     if(dragAnchor === null) return;
+    // 押した直後に、まとまりが分かれて字の位置が動くので、少し動かすまでは選択を変えない
+    if(!dragMoved){
+      if(dragOrigin && Math.hypot(e.clientX - dragOrigin.x, e.clientY - dragOrigin.y) < 4) return;
+      dragMoved = true;
+    }
     const pageIdx = findPageIdxAtY(e.clientY);
     if(pageIdx === null) return;
     const rect = pageRefs[pageIdx].contentEl.getBoundingClientRect();
-    const idx = pointToIndex(pageIdx, (e.clientX - rect.left) / zoom, (e.clientY - rect.top) / zoom);
+    const px = (e.clientX - rect.left) / zoom, py = (e.clientY - rect.top) / zoom;
+    const idx = pointToIndex(pageIdx, px, py);
     // ドラッグの端が記号と漢字の間なら、そこまでを選ぶ(記号を含めるか含めないかを選べる)
     const slot = markSlotAtPoint(e.clientX, e.clientY);
     const focus = slot !== null ? slot : idx;
     const start = Math.min(dragAnchor, focus), end = Math.max(dragAnchor, focus);
     hiddenInput.setSelectionRange(start, end, focus >= dragAnchor ? 'forward' : 'backward');
+    caretBottomIdx = (start === end && slot === null && pointAtColumnBottom(pageIdx, px, py, idx)) ? idx : null;
     updateCaretVisual();
   });
-  document.addEventListener('mouseup', () => { dragAnchor = null; });
+  document.addEventListener('mouseup', () => {
+    if(dragAnchor === null) return;
+    dragAnchor = null; dragOrigin = null; dragMoved = false;
+    if(dragSticky.size){ dragSticky = new Set(); updateCaretVisual(); } // ドラッグが終わったら、選択の端に触れていないまとまりは元に戻す
+  });
 
   // ---------- 描画 ----------
   function buildPage(pageIdx){
@@ -1767,6 +1862,13 @@
       // 記号と漢字の間を押したときは、その間(本文の中のその位置)にキャレットを置く
       const slot = markSlotAtPoint(e.clientX, e.clientY);
       const ti = slot !== null ? slot : idx;
+      // ダブルクリックで開くパネルのために、押した漢字を覚えておく(1回目の押下で画面が組み直されても分かるように)
+      { let n = e.target, kEl = null;
+        while(n && n !== contentEl){ if(n.classList && n.classList.contains('is-kanji') && n.getAttribute('data-idx') !== null){ kEl = n; break; } n = n.parentNode; }
+        lastKanjiDown = kEl ? { idx: Number(kEl.getAttribute('data-idx')), x: e.clientX, y: e.clientY, t: Date.now() } : null; }
+      dragSticky = new Set();
+      dragOrigin = { x: e.clientX, y: e.clientY }; dragMoved = false;
+      caretBottomIdx = (slot === null && pointAtColumnBottom(pageIdx, x, y, idx)) ? idx : null;
       dragAnchor = ti;
       hiddenInput.setSelectionRange(ti, ti);
       updateCaretVisual();
@@ -2325,6 +2427,9 @@
       const slot = markSlotAtPoint(e.clientX, e.clientY);
       const ti = slot !== null ? slot : (e.clientY < b.top + b.height / 2 ? m.idx : m.idx + m.ch.length);
       hiddenInput.focus();
+      dragSticky = new Set();
+      dragOrigin = { x: e.clientX, y: e.clientY }; dragMoved = false;
+      caretBottomIdx = null;
       dragAnchor = ti;
       hiddenInput.setSelectionRange(ti, ti);
       updateCaretVisual();
@@ -2348,6 +2453,7 @@
     el.style.right = (colIdx * cellW) + 'px';
     el.style.top = (rowIdx * cellH) + 'px';
     const ch = charAtIdx(text, cell.mainIdx);
+    if(groupRanges.some(g => cell.mainIdx >= g[0] && cell.mainIdx < g[1])) el.classList.add('in-group');
     const gj = gaiji.get(ch);
     if(gj){
       el.textContent = '';
@@ -2499,7 +2605,7 @@
           markOkuri(addAnnoSpanXY(el, anno.okuri, 14, 0, false, { topPx: annoCharSize / 2 }));
         }
       } else if(anno && anno.furi && anno.okuri){
-        if(klen(anno.furi) + klen(anno.okuri) > 4){
+        if(klen(anno.furi) + klen(anno.okuri) > Math.max(1, Number(state.furiOkuriJoinMax) || 5)){
           // 文字数が多い場合は、振り仮名と送り仮名を並列の2列で表示する
           addAnnoSpanXY(el, anno.furi,  19, 0, false);
           markOkuri(addAnnoSpanXY(el, anno.okuri, 12, 14, false));
@@ -2513,16 +2619,18 @@
       } else if(anno && anno.furi){
         addAnnoSpan(el, anno.furi, 'furi');
       } else if(anno && anno.okuri){
-        if(klen(anno.okuri) > 4){
-          // 4文字を超える送り仮名は、前半3文字と残りを2列に分けて表示する
-          markOkuri(addAnnoSpanXY(el, kslice(anno.okuri, 0, 3), 19, 7, false));
-          markOkuri(addAnnoSpanXY(el, kslice(anno.okuri, 3), 12, 17, false));
+        const splitOver = Math.max(1, Number(state.okuriSplitOver) || 4);
+        const splitHead = Math.max(1, Number(state.okuriSplitHead) || 3);
+        if(klen(anno.okuri) > splitOver){
+          // 設定の字数を超える送り仮名は、前半(初めは3文字)と残りを2列に分けて表示する
+          markOkuri(addAnnoSpanXY(el, kslice(anno.okuri, 0, splitHead), 19, 7, false));
+          markOkuri(addAnnoSpanXY(el, kslice(anno.okuri, splitHead), 12, 17, false));
         } else {
           markOkuri(addAnnoSpan(el, anno.okuri, 'okuri'));
         }
       }
 
-      // 右クリックのコンテキストメニューから、この漢字の注釈パネルを開けるように位置を覚えておく
+      // ダブルクリックで、この漢字の注釈パネルを開けるように位置を覚えておく
       el.setAttribute('data-idx', String(cell.mainIdx));
     }
     allCellEls.push({ el, idx: cell.mainIdx });
@@ -2532,7 +2640,41 @@
 
   function render(){
     const text = hiddenInput.value;
-    layout = computeLayout(text);
+    const attach0 = computeAttachments(text);
+    const detach = computeDetachSet(attach0, text);
+    layout = computeLayout(text, applyDetach(attach0, detach));
+    layout.attach0 = attach0;
+    layout.detachKey = detachKeyOf(detach);
+    groupRanges = [];
+    detach.forEach(k => { const o = attach0.owners.get(k); if(o) groupRanges.push(groupRange(o, k, text)); });
+    // 字の動きを見せるため、組み直す前の字の位置を覚えておく
+    const flip = animateNext && !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    animateNext = false;
+    const prevRects = new Map();
+    // 動かして見せるのは、キャレットの近くの字だけ(遠くの字まで測ると重くなる)
+    const nearSel = (idx) => Math.abs(idx - hiddenInput.selectionEnd) < 300;
+    if(flip) allCellEls.forEach(({ el, idx }) => {
+      if(!nearSel(idx) || el.classList.contains('eol-mark') || prevRects.has(idx)) return;
+      const r = el.getBoundingClientRect();
+      prevRects.set(idx, { l: r.left, t: r.top });
+    });
+
+    // 分けて見せるまとまりを囲む四角:同じ列に続く字ごとに1つ(列をまたぐときは、列ごと)
+    const boxesByPage = new Map();
+    detach.forEach(k => {
+      const o = attach0.owners.get(k);
+      if(!o) return;
+      const [gs, ge] = groupRange(o, k, text);
+      const runs = [];
+      for(let i = gs; i < ge; i += charAtIdx(text, i).length){
+        const ps = layout.posOf[i];
+        if(!ps) continue;
+        const last = runs[runs.length - 1];
+        if(last && last.page === ps.page && last.col === ps.col) last.y1 = ps.y;
+        else runs.push({ page: ps.page, col: ps.col, y0: ps.y, y1: ps.y });
+      }
+      runs.forEach(r => { if(!boxesByPage.has(r.page)) boxesByPage.set(r.page, []); boxesByPage.get(r.page).push(r); });
+    });
 
     // hiddenInput / caretBar は body 直下に固定したまま動かさない(workspace の子ではないので影響を受けない)
     workspace.innerHTML = '';
@@ -2558,6 +2700,18 @@
           allCellEls.push({ el: mark, idx: col.startIdx });
         }
       });
+      (boxesByPage.get(pIdx) || []).forEach(r => {
+        const box = document.createElement('div');
+        box.className = 'group-box';
+        const pad = 3;
+        const gTop = (cellH - state.fontSize) / 2, gBottom = (cellH + state.fontSize) / 2;
+        const bw = state.fontSize + pad * 2 + 2;
+        box.style.width = bw + 'px';
+        box.style.right = (r.col * cellW + (cellW - bw) / 2) + 'px';
+        box.style.top = (r.y0 * cellH + gTop - pad) + 'px';
+        box.style.height = ((r.y1 - r.y0) * cellH + (gBottom - gTop) + pad * 2) + 'px';
+        refs.contentEl.appendChild(box);
+      });
       refs.numEl.textContent = formatPageNumber(pIdx + 1, layout.pages.length);
       refs.numEl.classList.toggle('is-empty', state.pageNumberFormat === 'none');
       workspace.appendChild(refs.pageEl);
@@ -2567,6 +2721,31 @@
     document.getElementById('stat-chars').textContent = countChars(text);
     document.getElementById('stat-pages').textContent = layout.pages.length;
     layoutZoomStage();
+
+    // 前の位置から新しい位置へ、字をすべらせる。新しく字として現れた記号は、ふわっと現れる
+    if(flip){
+      const moving = [];
+      allCellEls.forEach(({ el, idx }) => {
+        if(!nearSel(idx) || el.classList.contains('eol-mark') || moving.some(m => m.el === el)) return;
+        const p = prevRects.get(idx);
+        const r = el.getBoundingClientRect();
+        if(!p){ el.style.opacity = '0'; moving.push({ el, fade: true }); return; }
+        const dx = (p.l - r.left) / zoom, dy = (p.t - r.top) / zoom;
+        if(Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
+        el.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+        moving.push({ el });
+      });
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        moving.forEach(m => {
+          m.el.style.transition = 'transform .17s ease-out, opacity .17s ease-out';
+          m.el.style.transform = ''; m.el.style.opacity = '';
+        });
+        setTimeout(() => moving.forEach(m => { m.el.style.transition = ''; }), 260);
+      }));
+      // キャレットも、新しい位置へすべるように動かす
+      caretBar.style.transition = 'top .17s ease-out, left .17s ease-out';
+      setTimeout(() => { caretBar.style.transition = ''; }, 260);
+    }
 
     updateCaretVisual();
   }
@@ -2589,52 +2768,89 @@
     });
   }
 
-  // キャレットのすぐ上の字が、漢字に添えた記号か、記号と漢字の間にキャレットがあるときに、
-  // Backspace で消える字(キャレットのすぐ上の字)の位置に薄い青を重ねる
-  function updateBackspaceTarget(hasSelection){
-    bsMarkEl.hidden = true;
-    if(hasSelection || !layout.attach) return;
-    const t = hiddenInput.value;
-    const i = hiddenInput.selectionEnd;
-    if(i <= 0) return;
-    const pi = prevCharIdx(t, i);
-    const at = layout.attach.byIdx.get(pi);
-    if(!at && !markCaretFromIndex(i)) return;
-    const ownerIdx = at ? at.owner : pi;
-    const c = allCellEls.find(x => x.idx === ownerIdx && x.el.classList.contains('is-kanji'));
-    if(!c) return;
-    const g = markGeometry(c.el);
-    const em = state.fontSize * zoom;
-    let top, bottom;
-    if(!at){ top = g.glyphTop; bottom = g.glyphBottom; }
-    else if(at.field === 'kami'){ if(!g.kamiInk) return; top = g.kamiInk.top; bottom = g.kamiInk.bottom; }
-    else { const ink = g.shimoInk[at.p]; if(!ink) return; top = ink.top; bottom = ink.bottom; }
-    const pad = Math.max(2, em * 0.06);
-    const w = Math.min(g.rect.width, em * 1.3);
-    let left = g.rect.left + (g.rect.width - w) / 2, width = w;
-    if(at){
-      const ch = charAtIdx(t, pi);
-      const k = state.fontSize / 19 * zoom; // 文字の大きさ19・倍率100%のときの px を、今の大きさに合わせる
-      if(CLOSE_BRACKETS.has(ch)){
-        // 閉じ括弧:実際の字形は少し上にあるので7px上げ、隣の句点にかからないよう右を3px削る
-        top -= 7 * k; bottom -= 7 * k;
-        width -= 3 * k;
-      } else if('。、，．'.includes(ch)){
-        // 句点・読点:隣の閉じ括弧にかからないよう左を3px削る
-        left += 3 * k; width -= 3 * k;
-      }
-    }
-    bsMarkEl.style.left = left + 'px';
-    bsMarkEl.style.width = Math.max(4, width) + 'px';
-    bsMarkEl.style.top = (top - pad) + 'px';
-    bsMarkEl.style.height = Math.max(4, bottom - top + pad * 2) + 'px';
-    bsMarkEl.hidden = false;
+  // 行の下端で折り返した所で、キャレットを「前の行の一番下の字の下」に出す位置(本文の位置)。
+  // 本文の位置は次の行の先頭と同じなので、どちらに出すかを、押した所・矢印キーの向きで覚えておく
+  let caretBottomIdx = null;
+  function caretPosAt(s, hasSelection){
+    if(!hasSelection && caretBottomIdx === s && layout.wrapEnds && layout.wrapEnds.has(s)) return layout.wrapEnds.get(s);
+    return layout.posOf[s];
+  }
+  // 押した(ドラッグした)所が、折り返しで終わる列の一番下の字の下半分より下なら、その列の一番下にキャレットを置く
+  function pointAtColumnBottom(pageIdx, x, y, idx){
+    if(!layout.wrapEnds || !layout.wrapEnds.has(idx)) return false;
+    const w = layout.wrapEnds.get(idx);
+    const page = layout.pages[pageIdx] || [];
+    let colIdx = Math.floor((contentWidth - x) / cellW);
+    colIdx = Math.max(0, Math.min(colIdx, Math.max(page.length - 1, 0)));
+    const col = page[colIdx];
+    if(!col || !col.length) return false;
+    return w.page === pageIdx && w.col === colIdx && y / cellH >= col.length - 0.5;
   }
 
   function updateCaretVisual(){
+    updateCaretVisualInner();
+    updatePanelBadge();
+  }
+
+  // ---------- 注釈パネルを開く「＋」の印 ----------
+  // キャレットが触れている漢字(すぐ上の漢字、なければすぐ下の漢字。上下記号に触れていれば、その記号の付いた漢字)の脇に出す。
+  // 本文の字は動かさず、字の左脇の余白に、小さく薄く置く。押すと、その漢字のパネルが開く
+  const panelBadge = document.createElement('div');
+  panelBadge.className = 'panel-badge';
+  panelBadge.setAttribute('role', 'button');
+  panelBadge.setAttribute('aria-label', 'この漢字の振り仮名・送り仮名・訓点を入力する');
+  panelBadge.title = '押すと、この漢字の振り仮名・送り仮名・訓点のパネルが開きます';
+  panelBadge.textContent = '＋';
+  document.body.appendChild(panelBadge);
+  let badgeIdx = null;
+  function badgeTarget(){
+    if(hiddenInput.selectionStart !== hiddenInput.selectionEnd) return null;
+    const t = hiddenInput.value, sp = hiddenInput.selectionStart, a = layout.attach0;
+    const ownerOf = (i) => {
+      if(i < 0 || i >= t.length) return null;
+      if(isKanji(charAtIdx(t, i))) return i;
+      const at = a && a.byIdx.get(i);
+      return at ? at.owner : null;
+    };
+    if(sp > 0){ const r = ownerOf(prevCharIdx(t, sp)); if(r !== null) return r; }
+    return ownerOf(sp);
+  }
+  function updatePanelBadge(){
+    badgeIdx = null;
+    const busy = dragAnchor !== null && dragMoved;
+    if(busy || document.activeElement !== hiddenInput || document.querySelector('.anno-panel')){ panelBadge.style.display = 'none'; return; }
+    const idx = badgeTarget();
+    const c = idx === null ? null : allCellEls.find(x => x.idx === idx && x.el.classList.contains('is-kanji'));
+    if(!c){ panelBadge.style.display = 'none'; return; }
+    const r = c.el.getBoundingClientRect();
+    const size = Math.max(12, Math.min(22, 14 * zoom));
+    // 字の左脇(左振り仮名の少し外)の、字の高さの真ん中
+    const left = r.left + r.width / 2 - (state.fontSize / 2 + 11) * zoom - size / 2;
+    panelBadge.style.width = panelBadge.style.height = size + 'px';
+    panelBadge.style.fontSize = Math.round(size * 0.8) + 'px';
+    panelBadge.style.left = left + 'px';
+    panelBadge.style.top = (r.top + r.height / 2 - size / 2) + 'px';
+    panelBadge.style.display = 'flex';
+    badgeIdx = idx;
+  }
+  panelBadge.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); }); // 本文のキャレットや選択を動かさない
+  panelBadge.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if(badgeIdx === null) return;
+    const c = allCellEls.find(x => x.idx === badgeIdx && x.el.classList.contains('is-kanji'));
+    if(!c) return;
+    hideContextMenu();
+    openAnnotationPanel(badgeIdx, c.el.getBoundingClientRect());
+  });
+  hiddenInput.addEventListener('blur', () => { updatePanelBadge(); });
+  // パネルが開いたり閉じたりしたときに、印を出し入れする
+  new MutationObserver(() => updatePanelBadge()).observe(document.body, { childList: true });
+
+  function updateCaretVisualInner(){
+    // 選択やキャレットが変わって、分けて見せるまとまりが変わるときは、組み直す(組み直しの中でもう一度ここに来る)
+    if(layout.attach0 && detachKeyOf(computeDetachSet(layout.attach0, hiddenInput.value)) !== layout.detachKey){ animateNext = true; render(); return; }
     updateSelectionVisual();
     const hasSelection = hiddenInput.selectionStart !== hiddenInput.selectionEnd;
-    updateBackspaceTarget(hasSelection);
     caretBar.style.display = hasSelection ? 'none' : '';
 
     // 記号と漢字の間にキャレットがあるときは、その間に横線を出す
@@ -2655,7 +2871,7 @@
     }
 
     const s = hiddenInput.selectionEnd; // 選択がある場合は「移動している側」の端に合わせる
-    const pos = layout.posOf[s];
+    const pos = caretPosAt(s, hasSelection);
     if(!pos) return; // 不正な位置なら何もしない(先頭へジャンプさせない)
     const refs = pageRefs[pos.page];
     if(!refs) return;
@@ -2687,7 +2903,8 @@
         const at = layout.attach.byIdx.get(s);
         if(at && at.field === 'kami'){
           const el = cellElOf(at.owner);
-          if(el){ const g = markGeometry(el); if(g.kamiInk){
+          const pk = layout.posOf[at.owner];
+          if(el && pk && pk.page === pos.page && pk.col === pos.col){ const g = markGeometry(el); if(g.kamiInk){
             const prevGlyphBottom = top - (cellH * zoom) / 2 + fs * 0.46;
             if(g.kamiInk.top < top + 1) hi = (g.kamiInk.top + Math.min(prevGlyphBottom, g.kamiInk.top)) / 2;
           } }
@@ -3094,14 +3311,8 @@
     const s = hiddenInput.selectionStart, e = hiddenInput.selectionEnd;
     const selLen = countChars(hiddenInput.value.slice(s, e));
 
-    // 漢字の上で右クリックしたときは、メニューと同時にその漢字の注釈パネル(振り仮名・送り仮名など)を
-    // 漢字のすぐ脇に開く。ただし複数文字を選択している場合は(熟字訓の入力などが目的のため)開かない。
+    // 注釈パネル(振り仮名・送り仮名など)は、漢字のダブルクリックで開く。右クリックでは、メニューだけを出す
     closeAnnotationPanel();
-    let panelRect = null;
-    if(kanjiEl && selLen <= 1){
-      openAnnotationPanel(Number(kanjiEl.getAttribute('data-idx')), kanjiEl.getBoundingClientRect());
-      if(annoPanelEl) panelRect = annoPanelEl.getBoundingClientRect();
-    }
 
     addMenuItem('コピー', () => {
       hiddenInput.focus();
@@ -3192,20 +3403,7 @@
       left: Math.max(4, Math.min(l, window.innerWidth - mw - 4)),
       top: Math.max(4, Math.min(t, window.innerHeight - mh - 4)),
     });
-    // まずクリックした位置を試し、注釈パネルと重なる場合は、パネルの下・上・右・左の順に試す
-    const candidates = [place(clientX, clientY)];
-    if(panelRect){
-      candidates.push(place(panelRect.left, panelRect.bottom + 8));
-      candidates.push(place(panelRect.left, panelRect.top - mh - 8));
-      candidates.push(place(panelRect.right + 8, panelRect.top));
-      candidates.push(place(panelRect.left - mw - 8, panelRect.top));
-    }
-    let chosen = candidates[0];
-    if(panelRect){
-      chosen = candidates.find(p2 => !rectsOverlap(
-        { left: p2.left, top: p2.top, right: p2.left + mw, bottom: p2.top + mh }, panelRect
-      )) || candidates[1];
-    }
+    const chosen = place(clientX, clientY);
     contextMenuEl.style.left = chosen.left + 'px';
     contextMenuEl.style.top = chosen.top + 'px';
   }
@@ -3227,6 +3425,29 @@
   });
   document.addEventListener('click', (e) => {
     if(contextMenuEl.style.display === 'block' && !contextMenuEl.contains(e.target)) hideContextMenu();
+  });
+  // 漢字をダブルクリックすると、その漢字の注釈パネル(振り仮名・送り仮名・訓点など)を、漢字のすぐ脇に開く
+  workspace.addEventListener('dblclick', (e) => {
+    if(e.button !== 0) return;
+    let idx = null;
+    const d = lastKanjiDown;
+    if(d && Date.now() - d.t < 700 && Math.hypot(e.clientX - d.x, e.clientY - d.y) < 8) idx = d.idx;
+    if(idx === null){
+      let n = document.elementFromPoint(e.clientX, e.clientY);
+      while(n && n !== workspace){
+        if(n.classList && n.classList.contains('is-kanji') && n.getAttribute('data-idx') !== null){ idx = Number(n.getAttribute('data-idx')); break; }
+        n = n.parentNode;
+      }
+    }
+    if(idx === null) return;
+    const c = allCellEls.find(x => x.idx === idx && x.el.classList.contains('is-kanji'));
+    if(!c) return;
+    e.preventDefault();
+    hideContextMenu();
+    hiddenInput.setSelectionRange(idx, idx);
+    updateCaretVisual();
+    const cell = allCellEls.find(x => x.idx === idx && x.el.classList.contains('is-kanji'));
+    openAnnotationPanel(idx, (cell || c).el.getBoundingClientRect());
   });
   document.addEventListener('scroll', hideContextMenu, true);
 
@@ -3270,7 +3491,7 @@
         jukujikunSpans.push({ start, end, text: input.value });
       }
       closeAnnotationPanel();
-      hiddenInput.setSelectionRange(end, end); // 選択を外し、続けて1字ずつ右クリックで編集できるようにする
+      hiddenInput.setSelectionRange(end, end); // 選択を外し、続けて1字ずつダブルクリックで編集できるようにする
       render();
     }
     okBtn.addEventListener('click', confirmJukujikun);
@@ -3297,6 +3518,9 @@
   }
 
   // ---------- 印刷・PDF ----------
+  // 印刷するときは、分けて見せている上記号・下記号を、ふだんの形に戻す
+  window.addEventListener('beforeprint', () => { printingNow = true; render(); });
+  window.addEventListener('afterprint', () => { printingNow = false; render(); });
   document.getElementById('btn-print').addEventListener('click', () => {
     window.print();
     hiddenInput.focus();
@@ -3343,6 +3567,9 @@
         kanjiWeight: state.kanjiWeight,
         annoWeight: state.annoWeight,
         jukujikunCharSpacing: state.jukujikunCharSpacing,
+        furiOkuriJoinMax: state.furiOkuriJoinMax,
+        okuriSplitOver: state.okuriSplitOver,
+        okuriSplitHead: state.okuriSplitHead,
         pageNumberFormat: state.pageNumberFormat,
       },
       annoOffsets: JSON.parse(JSON.stringify(ANNO_OFFSETS)),
@@ -3435,6 +3662,9 @@
         kanjiWeight: state.kanjiWeight,
         annoWeight: state.annoWeight,
         jukujikunCharSpacing: state.jukujikunCharSpacing,
+        furiOkuriJoinMax: state.furiOkuriJoinMax,
+        okuriSplitOver: state.okuriSplitOver,
+        okuriSplitHead: state.okuriSplitHead,
         pageNumberFormat: state.pageNumberFormat,
       },
       annoOffsets: ANNO_OFFSETS,
@@ -3844,6 +4074,9 @@
     document.getElementById('ctl-kanjiweight').value = state.kanjiWeight;
     document.getElementById('ctl-annoweight').value = state.annoWeight;
     document.getElementById('ctl-jukujikungap').value = state.jukujikunCharSpacing;
+    document.getElementById('ctl-furiokurijoin').value = state.furiOkuriJoinMax;
+    document.getElementById('ctl-okurisplit').value = state.okuriSplitOver;
+    document.getElementById('ctl-okurihead').value = state.okuriSplitHead;
     syncAnnoSlidersFromOffsets();
   }
 
@@ -3960,6 +4193,7 @@
   }
 
   function handleInput(){
+    caretBottomIdx = null;
     markCaret = null;
     markSel = null;
     const newText = hiddenInput.value;
@@ -4011,12 +4245,13 @@
         }
       }
 
-      let target = null;
-      if(e.key === 'ArrowDown'){ target = nextCharIdx(text, movingPos); }
+      let target = null, bottom = false;
+      if(e.key === 'ArrowDown'){ target = nextCharIdx(text, movingPos); bottom = target > movingPos; } // 下へ動くときは、列の一番下の字の下に止まる
       else if(e.key === 'ArrowUp'){ target = prevCharIdx(text, movingPos); }
-      else if(e.key === 'ArrowLeft'){ target = moveByColumn(movingPos, +1); }
-      else if(e.key === 'ArrowRight'){ target = moveByColumn(movingPos, -1); }
+      else if(e.key === 'ArrowLeft'){ target = moveByColumn(movingPos, +1); bottom = moveBottom; }
+      else if(e.key === 'ArrowRight'){ target = moveByColumn(movingPos, -1); bottom = moveBottom; }
       if(target === null) return;
+      caretBottomIdx = (!e.shiftKey && bottom) ? target : null;
 
       if(e.shiftKey){
         const start = Math.min(shiftAnchor, target);
@@ -4048,6 +4283,9 @@
   bindSlider('ctl-kanjiweight', 'kanjiWeight');
   bindSlider('ctl-annoweight', 'annoWeight');
   bindSlider('ctl-jukujikungap', 'jukujikunCharSpacing');
+  bindSlider('ctl-furiokurijoin', 'furiOkuriJoinMax');
+  bindSlider('ctl-okurisplit', 'okuriSplitOver');
+  bindSlider('ctl-okurihead', 'okuriSplitHead');
 
   // ---------- 注釈ごとの位置調整スライダー(px)を動的に生成する ----------
   const ANNO_SLIDER_SPECS = [
