@@ -831,7 +831,7 @@
         <p class="side-note">読みの文字数が多いとき、どこで2列に分けるかを決めます。</p>
         <div class="control">
           <div class="row"><label style="flex:1" for="ctl-furiokurijoin">振り仮名と送り仮名を続けて並べる合計字数(これを超えると、2列に並べる)</label></div>
-          <input type="number" id="ctl-furiokurijoin" step="1" min="1" value="5" class="num-input">
+          <input type="number" id="ctl-furiokurijoin" step="1" min="1" value="4" class="num-input">
         </div>
         <div class="control">
           <div class="row"><label style="flex:1" for="ctl-okurisplit">送り仮名だけのとき、2列に分ける字数(これを超えると、2列に分ける)</label></div>
@@ -998,7 +998,7 @@
     'ァ','ィ','ゥ','ェ','ォ','ッ','ャ','ュ','ョ','ヮ'
   ]);
 
-  const state = { fontSize:19, lineSpacing:35, charSpacing:30, margin:75, annoScalePercent:45, kanjiWeight:650, annoWeight:900, jukujikunCharSpacing:0, furiOkuriJoinMax:5, okuriSplitOver:4, okuriSplitHead:3, pageNumberFormat:'n-of-m' };
+  const state = { fontSize:19, lineSpacing:35, charSpacing:30, margin:75, annoScalePercent:45, kanjiWeight:650, annoWeight:900, jukujikunCharSpacing:0, furiOkuriJoinMax:4, okuriSplitOver:4, okuriSplitHead:3, pageNumberFormat:'n-of-m' };
   let cellW, cellH, rowsPerColumn, colsPerPage, contentWidth, contentHeight;
 
   // 漢字判定(漢文注釈の対象)
@@ -2538,7 +2538,7 @@
           markOkuri(addAnnoSpanXY(el, anno.okuri, 14, 0, false, { topPx: annoCharSize / 2 }));
         }
       } else if(anno && anno.furi && anno.okuri){
-        if(klen(anno.furi) + klen(anno.okuri) > Math.max(1, Number(state.furiOkuriJoinMax) || 5)){
+        if(klen(anno.furi) + klen(anno.okuri) > Math.max(1, Number(state.furiOkuriJoinMax) || 4)){
           // 文字数が多い場合は、振り仮名と送り仮名を並列の2列で表示する
           addAnnoSpanXY(el, anno.furi,  19, 0, false);
           markOkuri(addAnnoSpanXY(el, anno.okuri, 12, 14, false));
