@@ -60,6 +60,8 @@
 
     /* デジタル庁デザインシステム(DADS)に準拠した画面の配色 */
     --dads-primary: #0017c1;
+    --sel-text-color: #3358f0;    /* 選んでいる字の青 */
+    --caret-prev-color: #ec3a50;  /* キャレットの直前の字の赤 */
     --dads-primary-hover: #00118f;
     --dads-ink: #333333;
     --dads-ink-strong: #1a1a1a;
@@ -437,11 +439,8 @@
 
   /* 傍線・波線(字の左側) */
   .side-line{ position: absolute; pointer-events: none; overflow: visible; color: var(--ink); }
-  .bs-target{
-    position: fixed; pointer-events: none; z-index: 3;
-    background: rgba(0, 23, 193, .12); border-radius: 3px;
-  }
-  .bs-target[hidden]{ display: none; }
+  /* キャレットのすぐ上の字(Backspace で消える字)は、字そのものを赤くする */
+  .cell.caret-prev, .anno.mark-hit.caret-prev{ color: var(--caret-prev-color); }
   .caret-bar{
     position: fixed;
     height: 2px;
@@ -466,17 +465,9 @@
     -webkit-text-stroke: var(--kanji-stroke, 0.5px) currentColor;
     text-stroke: var(--kanji-stroke, 0.5px) currentColor;
   }
-  .cell.cell-selected{ background: var(--dads-tint-blue-selected); }
-  /* 字だけを選び、その字の上記号・下記号は選んでいないとき:色を字の所までにする */
-  .cell.cell-selected.sel-trim-top{ --st: var(--sel-trim, 10px); }
-  .cell.cell-selected.sel-trim-bottom{ --sb: var(--sel-trim, 10px); }
-  .cell.cell-selected.sel-trim-top, .cell.cell-selected.sel-trim-bottom{
-    background: linear-gradient(to bottom,
-      transparent 0, transparent var(--st, 0px),
-      var(--dads-tint-blue-selected) var(--st, 0px), var(--dads-tint-blue-selected) calc(100% - var(--sb, 0px)),
-      transparent calc(100% - var(--sb, 0px)));
-  }
-  .anno.mark-selected{ background: var(--dads-tint-blue-selected); border-radius: 2px; }
+  .cell.cell-selected{ color: var(--sel-text-color); } /* 選んでいる字は、字だけを青くする(背景の色は付けない) */
+  .cell.cell-selected .anno:not(.mark-hit){ color: var(--sel-text-color); } /* 振り仮名・送り仮名なども、字と一緒に青く */
+  .anno.mark-selected{ color: var(--sel-text-color); }
   .anno{
     position:absolute;
     z-index: 2; /* 下や隣のマスが選ばれて色が付いても、はみ出した振り仮名・訓点などが隠れないように */
@@ -647,6 +638,16 @@
     padding: 12px 14px 14px;
   }
   .ids-query-row{ flex: none; display: flex; gap: 8px; }
+  .ids-lookup{ flex: none; display: flex; align-items: center; gap: 8px; }
+  .ids-lookup-label{ flex: none; font-size: 12px; color: var(--dads-muted); white-space: nowrap; }
+  .ids-lookup-input{
+    flex: none; width: 52px; box-sizing: border-box; text-align: center;
+    font-family: var(--kanji-font); font-size: 20px; padding: 6px 4px;
+    border: 1px solid var(--dads-muted); border-radius: 8px; color: var(--dads-ink);
+  }
+  .ids-lookup-input:focus{ outline: 2px solid var(--dads-primary); outline-offset: 1px; }
+  .ids-lookup-out{ flex: 1; min-width: 0; font-family: var(--kanji-font); font-size: 20px; line-height: 1.4; color: var(--dads-ink); overflow-wrap: anywhere; }
+  .ids-lookup-out.is-note{ font-family: var(--dads-font); font-size: 12px; color: var(--dads-muted); }
   .ids-query-row .btn{ padding: 6px 10px; font-size: 12px; white-space: nowrap; }
   .ids-query{
     flex: 1; min-width: 0;
@@ -698,7 +699,7 @@
     @page{ size: 297mm 210mm; margin: 0; }
     body{ background:#fff !important; }
     .toolbar, .sidebar, .caret-bar, .hidden-input,
-    .anno-panel, .kunten-picker, .context-menu, .ids-window, .composer-window, .help-window, .site-footer, .file-gutter, .bs-target{ display:none !important; }
+    .anno-panel, .kunten-picker, .context-menu, .ids-window, .composer-window, .help-window, .site-footer, .file-gutter{ display:none !important; }
     html, body{ height:auto !important; overflow:visible !important; display:block !important; }
     .app-body, .main-col, .workspace-area{ display:block !important; }
     .workspace-scroll{ overflow:visible !important; }
@@ -715,11 +716,17 @@
     .page{
       box-shadow:none !important;
       margin:0 !important;
+      /* 1ページの高さ(794px)がA4横の高さ(210mm=約793.7px)を僅かに超えて、はみ出た分が白紙のページになるのを防ぐ */
+      width: 297mm !important;
+      height: 209.5mm !important;
+      overflow: hidden !important;
       page-break-after: always !important;
       break-after: page !important;
       page-break-inside: avoid !important;
     }
     .page:last-child{ page-break-after: auto !important; break-after: auto !important; }
+    .cell.cell-selected, .cell.caret-prev{ color: var(--ink) !important; }
+    .cell.cell-selected .anno:not(.mark-hit), .anno.mark-selected, .anno.mark-hit.caret-prev{ color: var(--ink) !important; }
     .page::before{ display:none !important; }
     .page-number{ color:#999 !important; }
   }
@@ -939,6 +946,11 @@
         <input type="text" class="ids-query" id="ids-query" placeholder="部首・部品を下から選ぶか、入力してください" aria-label="探したい字に含まれる部首・部品" autocomplete="off" spellcheck="false">
         <button type="button" class="btn" id="ids-backspace" title="最後の1つを消す">1つ消す</button>
         <button type="button" class="btn" id="ids-clear">すべて消す</button>
+      </div>
+      <div class="ids-lookup">
+        <label class="ids-lookup-label" for="ids-lookup">字から構成を調べる</label>
+        <input type="text" class="ids-lookup-input" id="ids-lookup" title="字を1つ入れると、その字を構成する字が出ます" autocomplete="off" spellcheck="false">
+        <span class="ids-lookup-out is-note" id="ids-lookup-out" aria-live="polite">字を1つ入れると、構成する字が出ます</span>
       </div>
       <div class="ids-tabs" id="ids-tabs" role="tablist" aria-label="部首・部品の画数"></div>
       <div class="ids-palette" id="ids-palette" role="tabpanel"></div>
@@ -1429,12 +1441,6 @@
   caretBar.className = 'caret-bar';
   document.body.appendChild(caretBar);
 
-  // 記号の近くにキャレットがあるとき、Backspace で消える字(キャレットのすぐ上の字)に薄い青を重ねる
-  const bsMarkEl = document.createElement('div');
-  bsMarkEl.className = 'bs-target';
-  bsMarkEl.hidden = true;
-  document.body.appendChild(bsMarkEl);
-
   let layout = { pages: [[[]]], posOf: [{ page:0, col:0, y:0 }] };
   const pageRefs = [];
   let allCellEls = []; // { el, idx } のフラットリスト(選択範囲のハイライト用)
@@ -1552,7 +1558,6 @@
     const kanjiSpace = state.fontSize + 12; // 漢字1字に確保する正方形スペース(注釈表示用)
     cellW = Math.max(state.fontSize + state.lineSpacing, kanjiSpace);   // 列の幅
     cellH = Math.max(state.fontSize + state.charSpacing, kanjiSpace);  // 1文字分の高さ
-    root.style.setProperty('--sel-trim', Math.max(0, (cellH - state.fontSize) / 2 - 2) + 'px'); // 選択の色を字の所までにするときの余白
     contentWidth = PAGE_W - state.margin * 2;
     contentHeight = PAGE_H - state.margin * 2;
     rowsPerColumn = Math.max(1, Math.floor(contentHeight / cellH));
@@ -2617,12 +2622,7 @@
     const e = Math.max(hiddenInput.selectionStart, hiddenInput.selectionEnd);
     const inSel = (i) => i >= s && i < e;
     allCellEls.forEach(({ el, idx }) => {
-      const on = inSel(idx);
-      el.classList.toggle('cell-selected', on);
-      // 字は選んでいても、添えている記号を選んでいないときは、マスの色を字の所までにとどめる
-      const o = on && layout.attach ? layout.attach.owners.get(idx) : null;
-      el.classList.toggle('sel-trim-top', !!(o && o.kami && !inSel(o.kami.idx)));
-      el.classList.toggle('sel-trim-bottom', !!(o && o.shimo.some(m => !inSel(m.idx))));
+      el.classList.toggle('cell-selected', inSel(idx));
     });
     workspace.querySelectorAll('.mark-hit').forEach(sp => {
       const ti = sp.dataset.textIdx;
@@ -2630,10 +2630,9 @@
     });
   }
 
-  // キャレットのすぐ上の字が、漢字に添えた記号か、記号と漢字の間にキャレットがあるときに、
-  // Backspace で消える字(キャレットのすぐ上の字)の位置に薄い青を重ねる
+  // キャレットが記号の近くにあるとき、Backspace で消える字(キャレットのすぐ上の字)を、字そのものを赤くして示す
   function updateBackspaceTarget(hasSelection){
-    bsMarkEl.hidden = true;
+    workspace.querySelectorAll('.caret-prev').forEach(el => el.classList.remove('caret-prev'));
     if(hasSelection || !layout.attach) return;
     const t = hiddenInput.value;
     const i = hiddenInput.selectionEnd;
@@ -2641,35 +2640,14 @@
     const pi = prevCharIdx(t, i);
     const at = layout.attach.byIdx.get(pi);
     if(!at && !markCaretFromIndex(i)) return;
-    const ownerIdx = at ? at.owner : pi;
-    const c = allCellEls.find(x => x.idx === ownerIdx && x.el.classList.contains('is-kanji'));
-    if(!c) return;
-    const g = markGeometry(c.el);
-    const em = state.fontSize * zoom;
-    let top, bottom;
-    if(!at){ top = g.glyphTop; bottom = g.glyphBottom; }
-    else if(at.field === 'kami'){ if(!g.kamiInk) return; top = g.kamiInk.top; bottom = g.kamiInk.bottom; }
-    else { const ink = g.shimoInk[at.p]; if(!ink) return; top = ink.top; bottom = ink.bottom; }
-    const pad = Math.max(2, em * 0.06);
-    const w = Math.min(g.rect.width, em * 1.3);
-    let left = g.rect.left + (g.rect.width - w) / 2, width = w;
     if(at){
-      const ch = charAtIdx(t, pi);
-      const k = state.fontSize / 19 * zoom; // 文字の大きさ19・倍率100%のときの px を、今の大きさに合わせる
-      if(CLOSE_BRACKETS.has(ch)){
-        // 閉じ括弧:実際の字形は少し上にあるので7px上げ、隣の句点にかからないよう右を3px削る
-        top -= 7 * k; bottom -= 7 * k;
-        width -= 3 * k;
-      } else if('。、，．'.includes(ch)){
-        // 句点・読点:隣の閉じ括弧にかからないよう左を3px削る
-        left += 3 * k; width -= 3 * k;
-      }
+      // 添えた記号(上記号・下記号)が消える字のとき:その記号を赤くする
+      const sp = [...workspace.querySelectorAll('.mark-hit')].find(x => x.dataset.textIdx === String(pi));
+      if(sp) sp.classList.add('caret-prev');
+    } else {
+      const c = allCellEls.find(x => x.idx === pi && x.el.classList.contains('is-kanji'));
+      if(c) c.el.classList.add('caret-prev');
     }
-    bsMarkEl.style.left = left + 'px';
-    bsMarkEl.style.width = Math.max(4, width) + 'px';
-    bsMarkEl.style.top = (top - pad) + 'px';
-    bsMarkEl.style.height = Math.max(4, bottom - top + pad * 2) + 'px';
-    bsMarkEl.hidden = false;
   }
 
   // 行の下端で折り返した所で、キャレットを「前の行の一番下の字の下」に出す位置(本文の位置)。
@@ -4503,6 +4481,13 @@
       idsPalette.appendChild(p);
       return;
     }
+    if(g.strokes === 0){
+      const note = document.createElement('p');
+      note.className = 'ids-message';
+      note.style.marginBottom = '6px';
+      note.textContent = '画数を決められなかった部品です。ほとんどは、めったに使われない字です。';
+      idsPalette.appendChild(note);
+    }
     [['部首', g.kangxi, ''], ['部首の変形', g.variants, 'is-variant'], ['部品', g.parts, '']].forEach(([label, chars, cls]) => {
       const list = Array.from(chars || '');
       if(!list.length) return;
@@ -4545,11 +4530,36 @@
     return b;
   }
 
+  // パレットにある字(辞書で使われている部品と、それ以上分けられない字)
+  let idsKnownSet = null;
+  function isIdsKnownChar(ch){
+    if(!idsKnownSet){
+      idsKnownSet = new Set();
+      getRadicals().forEach(g => ['kangxi', 'variants', 'parts'].forEach(k => Array.from(g[k] || '').forEach(c => idsKnownSet.add(c))));
+    }
+    return idsKnownSet.has(ch);
+  }
+
   // 結果は「含んでいた部品の数」ごとにまとめ、多いほうから並べる
-  function showIdsRanked(results, parts){
+  function showIdsRanked(results, parts, limit){
     idsResults.innerHTML = '';
+    // 部品を1つだけ選んだときは、その字そのものも先頭に出す(それ以上分けられない字も、これで本文に入れられる)
+    if(parts.length === 1 && isIdsKnownChar(parts[0])){
+      const lab = document.createElement('div');
+      lab.className = 'ids-group-label';
+      lab.textContent = '選んだ字そのもの';
+      idsResults.appendChild(lab);
+      const keys = document.createElement('div');
+      keys.className = 'ids-keys';
+      keys.appendChild(makeResultKey(parts[0]));
+      idsResults.appendChild(keys);
+    }
     if(!results.length){
-      showIdsMessage('選んだ部首・部品を含む字は見つかりませんでした。別の部首・部品で試してください。');
+      const p = document.createElement('p');
+      p.className = 'ids-message';
+      p.style.marginTop = '8px';
+      p.textContent = '選んだ部首・部品を含む字は見つかりませんでした。別の部首・部品で試してください。';
+      idsResults.appendChild(p);
       return;
     }
     const total = results[0].total;
@@ -4570,10 +4580,27 @@
       chars.forEach(ch => keys.appendChild(makeResultKey(ch)));
       idsResults.appendChild(keys);
     });
+    // 表示の上限に達したときは、続きを出せるようにする(部品が少ない字も、最後には必ず見つかるように)
+    if(typeof limit === 'number' && isFinite(limit) && results.length >= limit){
+      const more = document.createElement('button');
+      more.type = 'button';
+      more.className = 'btn';
+      more.style.margin = '10px 0';
+      more.textContent = limit < IDS_RESULT_LIMIT_MID ? ('さらに表示する(' + IDS_RESULT_LIMIT_MID + '字まで)') : 'すべて表示する';
+      more.addEventListener('click', () => {
+        const top = idsResults.scrollTop;
+        idsLimit = limit < IDS_RESULT_LIMIT_MID ? IDS_RESULT_LIMIT_MID : Infinity;
+        runIdsSearch(true);
+        idsResults.scrollTop = top;
+      });
+      idsResults.appendChild(more);
+    }
   }
 
-  const IDS_RESULT_LIMIT = 600;
-  function runIdsSearch(){
+  const IDS_RESULT_LIMIT = 600, IDS_RESULT_LIMIT_MID = 3000;
+  let idsLimit = IDS_RESULT_LIMIT;
+  function runIdsSearch(keepLimit){
+    if(keepLimit !== true) idsLimit = IDS_RESULT_LIMIT; // 検索し直すたびに、表示の上限をもとに戻す
     const parts = Array.from(idsQuery.value).filter(ch => ch.trim());
     if(!parts.length && idsDictState === 'failed'){
       showIdsMessage('辞書が見つからないため、検索できません。data フォルダに ids_data.js が入っているか確認してください。');
@@ -4591,7 +4618,7 @@
         : '辞書を読み込んでいます。読み込みが終わると、自動で検索します。');
       return;
     }
-    showIdsRanked(idsDict.rank(parts, IDS_RESULT_LIMIT), parts);
+    showIdsRanked(idsDict.rank(parts, isFinite(idsLimit) ? idsLimit : undefined), parts, idsLimit);
   }
 
   // 入力するたびに検索し直す(日本語入力の変換中は待つ)
@@ -4618,7 +4645,48 @@
     runIdsSearch();
   });
 
-
+  // 字を1つ入れると、その字を構成する字を並べる(記述文字は出さず、字だけを並べる)
+  const idsLookup = document.getElementById('ids-lookup');
+  const idsLookupOut = document.getElementById('ids-lookup-out');
+  function showIdsLookup(text, isNote){
+    idsLookupOut.textContent = text;
+    idsLookupOut.classList.toggle('is-note', !!isNote);
+  }
+  function updateIdsLookup(){
+    const ch = Array.from(idsLookup.value.trim())[0];
+    if(!ch){ showIdsLookup('字を1つ入れると、構成する字が出ます', true); return; }
+    if(!idsDict){
+      showIdsLookup(idsDictState === 'failed' ? '辞書が見つかりません' : '辞書を読み込んでいます', true);
+      return;
+    }
+    const list = idsPartsMap ? (idsPartsMap.get(ch.normalize('NFC')) || null) : null;
+    if(!list){
+      showIdsLookup(isIdsKnownChar(ch.normalize('NFC')) ? 'それ以上分けられない字です' : '辞書に見つかりません', true);
+      return;
+    }
+    // 部品の字だけを並べる(記述文字は出さない)。文字コードのない部品(外字)や、その位置を示す記号は「□」にする
+    const shown = [];
+    list.forEach(leaves => {
+      const parts = leaves.map(t => (t.charAt(0) === '&' || /[\u2460-\u2473?？△αℓ～]/.test(t)) ? '□' : t);
+      if(parts.every(t => t === '□')) return;
+      const s = parts.join('');
+      if(!shown.includes(s)) shown.push(s);
+    });
+    if(!shown.length){ showIdsLookup('文字コードのない部品でできています', true); return; }
+    showIdsLookup(shown.join('　／　'), false);
+  }
+  // 入れた字は1字だけにする(続けて別の字を入れると、入れ替わる)
+  function trimLookupInput(){
+    const chars = Array.from(idsLookup.value.replace(/\s/g, ''));
+    if(chars.length > 1) idsLookup.value = chars[chars.length - 1];
+  }
+  idsLookup.addEventListener('input', (e) => {
+    if(e.isComposing) return;
+    trimLookupInput();
+    updateIdsLookup();
+  });
+  idsLookup.addEventListener('compositionend', () => { trimLookupInput(); updateIdsLookup(); });
+  idsLookup.addEventListener('focus', () => idsLookup.select());
 
   // ---------- 辞書の自動読み込み ----------
   // 1. data/ids_data.js(ids.txt の中身をそのまま包んだファイル)を読む。<script> で読むので、
@@ -4626,8 +4694,36 @@
   // 2. それが無ければ data/ids.txt を読む(サイトとして公開した場合はこちらも使える)。
   // 3. どちらも読めなければ、検索ウィンドウに辞書が見つからないことを表示する。
   let idsAutoTried = false;
+  // 字を構成する部品の表(字 → 分け方の一覧)。辞書の文字列から、ここで直接作る
+  // (js/ids_core.js の版に関わらず、「字から構成を調べる」欄が動くようにするため)
+  let idsPartsMap = null;
+  function buildIdsPartsMap(text){
+    const map = new Map();
+    const OPS = '⿰⿱⿲⿳⿴⿵⿶⿷⿸⿹⿺⿻⿼⿽⿾⿿㇯';
+    String(text).split(/\r?\n/).forEach(line => {
+      if(!line || line[0] === ';' || line[0] === '#') return;
+      const cols = line.split('\t');
+      if(cols.length < 3) return;
+      const ch = cols[1].trim().normalize('NFC');
+      if(!ch) return;
+      cols.slice(2).forEach(raw => {
+        let ids = raw.trim();
+        if(!ids || ids[0] === '@') return;
+        ids = ids.replace(/^\^/, '').replace(/\$?\([^)]*\)$/, '').replace(/\[[^\]]*\]$/, '').replace(/\$$/, '').trim(); // 地域タグなどの飾りを外す
+        if(!ids) return;
+        const toks = (ids.match(/&[^&;\s]+;|[\s\S]/gu) || []).filter(t => OPS.indexOf(t) < 0);
+        if(!toks.length) return;
+        const key = toks.join('\u0000');
+        let list = map.get(ch);
+        if(!list) map.set(ch, list = []);
+        if(!list.some(x => x.join('\u0000') === key)) list.push(toks);
+      });
+    });
+    return map;
+  }
   function loadIdsDictFromText(text){
     try{
+      idsPartsMap = buildIdsPartsMap(text);
       idsDict = getIdsCore().createDict(text);
     } catch(err){
       idsDict = null;
@@ -4638,7 +4734,7 @@
     afterDictLoaded();
   }
   function idsDictLoadFailed(){
-    if(!idsDict){ idsDictState = 'failed'; runIdsSearch(); }
+    if(!idsDict){ idsDictState = 'failed'; runIdsSearch(); updateIdsLookup(); }
   }
   function tryFetchIdsTxt(){
     if(typeof fetch !== 'function'){ idsDictLoadFailed(); return; }
@@ -4666,7 +4762,7 @@
 
   function afterDictLoaded(){
     // 最初の検索で待たされないよう、部品の索引を先に作っておく
-    setTimeout(() => { try{ idsDict.rank(['一'], 1); } catch(err){} runIdsSearch(); }, 0);
+    setTimeout(() => { try{ idsDict.rank(['一'], 1); } catch(err){} runIdsSearch(); updateIdsLookup(); }, 0);
   }
 
   buildIdsTabs();
