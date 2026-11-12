@@ -60,8 +60,8 @@
 
     /* デジタル庁デザインシステム(DADS)に準拠した画面の配色 */
     --dads-primary: #0017c1;
-    --sel-text-color: #3358f0;    /* 選んでいる字の青 */
-    --caret-prev-color: #ec3a50;  /* キャレットの直前の字の赤 */
+    --sel-text-color: #ec3a50;    /* 選んでいる字の赤 */
+    --caret-prev-color: #3358f0;  /* キャレットの直前の字の青 */
     --dads-primary-hover: #00118f;
     --dads-ink: #333333;
     --dads-ink-strong: #1a1a1a;
@@ -439,7 +439,7 @@
 
   /* 傍線・波線(字の左側) */
   .side-line{ position: absolute; pointer-events: none; overflow: visible; color: var(--ink); }
-  /* キャレットのすぐ上の字(Backspace で消える字)は、字そのものを赤くする */
+  /* キャレットのすぐ上の字(Backspace で消える字)は、字そのものを青くする */
   .cell.caret-prev, .anno.mark-hit.caret-prev{ color: var(--caret-prev-color); }
   .caret-bar{
     position: fixed;
@@ -465,8 +465,8 @@
     -webkit-text-stroke: var(--kanji-stroke, 0.5px) currentColor;
     text-stroke: var(--kanji-stroke, 0.5px) currentColor;
   }
-  .cell.cell-selected{ color: var(--sel-text-color); } /* 選んでいる字は、字だけを青くする(背景の色は付けない) */
-  .cell.cell-selected .anno:not(.mark-hit){ color: var(--sel-text-color); } /* 振り仮名・送り仮名なども、字と一緒に青く */
+  .cell.cell-selected{ color: var(--sel-text-color); } /* 選んでいる字は、字だけを赤くする(背景の色は付けない) */
+  .cell.cell-selected .anno:not(.mark-hit){ color: var(--sel-text-color); } /* 振り仮名・送り仮名なども、字と一緒に赤く */
   .anno.mark-selected{ color: var(--sel-text-color); }
   .anno{
     position:absolute;
@@ -684,7 +684,7 @@
   .ids-result-key{ min-width: 40px; height: 40px; font-size: 24px; }
   .ids-rz{ position: absolute; z-index: 2; touch-action: none; }
   .cell img.gaiji{ display: block; width: 1em; height: 1em; pointer-events: none; }
-  /* 組み立てた字(画像)に、選択の青・キャレット直前の赤を付ける:同じ字形を型にして、その字の色(currentColor)で塗る */
+  /* 組み立てた字(画像)に、選択の赤・キャレット直前の青を付ける:同じ字形を型にして、その字の色(currentColor)で塗る */
   .cell .gaiji-tint{
     display: none; width: 1em; height: 1em; pointer-events: none;
     background-color: currentColor;
