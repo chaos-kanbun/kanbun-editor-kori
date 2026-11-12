@@ -684,6 +684,15 @@
   .ids-result-key{ min-width: 40px; height: 40px; font-size: 24px; }
   .ids-rz{ position: absolute; z-index: 2; touch-action: none; }
   .cell img.gaiji{ display: block; width: 1em; height: 1em; pointer-events: none; }
+  /* 組み立てた字(画像)に、選択の青・キャレット直前の赤を付ける:同じ字形を型にして、その字の色(currentColor)で塗る */
+  .cell .gaiji-tint{
+    display: none; width: 1em; height: 1em; pointer-events: none;
+    background-color: currentColor;
+    -webkit-mask: var(--gaiji-src) center / 100% 100% no-repeat;
+    mask: var(--gaiji-src) center / 100% 100% no-repeat;
+  }
+  .cell.cell-selected .gaiji-tint, .cell.caret-prev .gaiji-tint{ display: block; }
+  .cell.cell-selected img.gaiji, .cell.caret-prev img.gaiji{ display: none; }
   .composer-window{ z-index: 56; }
   .composer-frame{ flex: 1; min-height: 0; width: 100%; border: none; background: var(--dads-canvas); }
   .ids-rz[data-dir="n"]{ top: 0; left: 8px; right: 8px; height: 6px; cursor: ns-resize; }
@@ -726,6 +735,8 @@
     }
     .page:last-child{ page-break-after: auto !important; break-after: auto !important; }
     .cell.cell-selected, .cell.caret-prev{ color: var(--ink) !important; }
+    .cell .gaiji-tint{ display: none !important; }
+    .cell.cell-selected img.gaiji, .cell.caret-prev img.gaiji{ display: block !important; }
     .cell.cell-selected .anno:not(.mark-hit), .anno.mark-selected, .anno.mark-hit.caret-prev{ color: var(--ink) !important; }
     .page::before{ display:none !important; }
     .page-number{ color:#999 !important; }
@@ -2400,6 +2411,10 @@
       img.src = gaijiDisplaySrc(gj.svg);
       img.alt = gj.name || '組み立てた字';
       el.appendChild(img);
+      const tint = document.createElement('span');
+      tint.className = 'gaiji-tint';
+      tint.style.setProperty('--gaiji-src', 'url("' + img.src + '")');
+      el.appendChild(tint);
     } else {
       el.textContent = ch;
     }
